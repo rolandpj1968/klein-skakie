@@ -145,10 +145,20 @@ PIECE_POS_VALS = (
     )
 )
 
+INFINITY_VAL = 1000000
+CHECKMATE_VAL = 20000
+DRAW_VAL = 0
+
+# FEN representation of the board with the half-move and full-move counts removed
+# Used for repeated position checks
+def fen4(board):
+    return " ".join(board.fen().split()[:4])
 
 class Game:
-    def __init__(self):
+    def __init__(self, board = chess.Board()):
         self.board = chess.Board()
+        # TODO - add position history from board
+        self.fen4s = set()
 
     def static_eval(self):
         val = 0
@@ -161,18 +171,30 @@ class Game:
                     val += PIECE_POS_VALS[color][piece_type][sq]
         return val
 
-    def minimax(self, depth):
-        if depth == 0:
+    def minimax(self, depth_from_root, depth_to_go):
+        
+        if self.board.is_checkmate():
+            return None, -CHECKMATE_VAL + depth_from_root, []
+
+        pos_fen4 = fen4(self.board)
+        
+        if self.board.is_stalemate() or (depth_from_root != 0 and pos_fen4 in self.fen4s):
+            return None, DRAW_VAL, []
+        
+        if depth_to_go == 0:
             val = self.static_eval() * [-1, 1][int(self.board.turn)]
             return None, val, []
 
+        if depth_from_root != 0:
+            self.fen4s.add(pos_fen4)
+
         best_move = None
-        best_eval = -1000000
+        best_eval = -INFINITY_VAL
         best_rpv = []
 
         for move in self.board.legal_moves:
             self.board.push(move)
-            child_best_move, child_eval, child_rpv = self.minimax(depth-1)
+            child_best_move, child_eval, child_rpv = self.minimax(depth_from_root+1, depth_to_go-1)
             self.board.pop()
 
             move_eval = -child_eval
@@ -183,25 +205,42 @@ class Game:
                 child_rpv.append(self.board.san(move))
                 best_rpv = child_rpv
 
+        if depth_from_root != 0:
+            self.fen4s.remove(pos_fen4)
+            
         return best_move, best_eval, best_rpv
             
-    def alphabeta(self, depth, alpha, beta):
-        if depth == 0:
+    def alphabeta(self, depth_from_root, depth_to_go, alpha, beta):
+        
+        if self.board.is_checkmate():
+            return None, -CHECKMATE_VAL + depth_from_root, []
+
+        pos_fen4 = fen4(self.board)
+        
+        if self.board.is_stalemate() or (depth_from_root != 0 and pos_fen4 in self.fen4s):
+            return None, DRAW_VAL, []
+        
+        if depth_to_go == 0:
             val = self.static_eval() * [-1, 1][int(self.board.turn)]
             return None, val, []
 
+        if depth_from_root != 0:
+            self.fen4s.add(pos_fen4)
+
         best_move = None
-        best_eval = -1000000
+        best_eval = -INFINITY_VAL
         best_rpv = []
 
         for move in self.board.legal_moves:
             self.board.push(move)
-            child_best_move, child_eval, child_rpv = self.alphabeta(depth-1, -beta, -alpha)
+            child_best_move, child_eval, child_rpv = self.alphabeta(depth_from_root+1, depth_to_go-1, -beta, -alpha)
             self.board.pop()
 
             move_eval = -child_eval
 
             if beta <= move_eval:
+                if depth_from_root != 0:
+                    self.fen4s.remove(pos_fen4)
                 return None, move_eval, []
 
             if alpha < move_eval:
@@ -213,6 +252,9 @@ class Game:
                 child_rpv.append(self.board.san(move))
                 best_rpv = child_rpv
 
+        if depth_from_root != 0:
+            self.fen4s.remove(pos_fen4)
+            
         return best_move, best_eval, best_rpv
             
     def play(self):
@@ -228,7 +270,21 @@ class Game:
             print_board = True
 
             if self.board.is_game_over():
-                print("Game over: %s" % self.board.result())
+                
+                reason = 'unknown'
+                if self.board.is_checkmate():
+                    reason = 'checkmate'
+                elif self.board.is_stalemate():
+                    reason = 'stalemate'
+                elif self.board.is_insufficient_material():
+                    reason = 'insufficient material'
+                elif self.board.is_seventyfive_moves():
+                    reason = '75 moves played without progress'
+                elif self.board.is_fivefold_repetition():
+                    reason = '5-fold repetition'
+                    
+                print("Game over: %s (%s)" % (self.board.result(), reason))
+
                 print()
                 print("Moves: %s" % self.board.move_stack)
                 sys.exit()
@@ -255,11 +311,11 @@ class Game:
             if move_san == 'engine':
                 print()
                 print("Calculating...")
-                engine_move, val, rpv = self.minimax(3)
-                # engine_move, val, rpv = self.alphabeta(3, -1000000, 1000000)
+                engine_move, val, rpv = self.minimax(0, 3)
+                # engine_move, val, rpv = self.alphabeta(0, 3, -INFINITY_VAL, INFINITY_VAL)
                 pv = rpv[::-1]
                 move_san = self.board.san(engine_move)
-                print("               ... klein skakie chooses move %s with minimax depth 3 - PV is %s" % (move_san, pv))
+                print("               ... klein skakie chooses move %s with minimax (alphabeta) depth 3 - PV is %s" % (move_san, pv))
 
             if not move_san in legal_move_sans:
                 print()
@@ -267,7 +323,8 @@ class Game:
                 print_board = False
                 continue
 
-            move = self.board.push_san(move_san)
+            self.board.push_san(move_san)
+            self.fen4s.add(fen4(self.board))
 
 def main():
     print("Hallo RPJ - let's play chess")
