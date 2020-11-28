@@ -150,7 +150,8 @@ CHECKMATE_VAL = 20000
 DRAW_VAL = 0
 
 MAX_DEPTH = 3
-MAX_QDEPTH = 11
+# I believe MAX_QDEPTH should be even to be conservative - i.e. always allow the opponent to make the last capture
+MAX_QDEPTH = 6
 
 DO_QSEARCH_MOVE_SORT = True
 
@@ -294,18 +295,38 @@ class Game:
         
         best_eval = val
 
-        captures = [move for move in self.board.legal_moves if self.board.is_capture(move)]
-
-        if DO_QSEARCH_MOVE_SORT:
-            captures.sort(key=lambda move: capture_value(self.board, move), reverse=True)
+        moves = list(self.board.legal_moves)
+        is_check = self.board.is_check()
         
-        for move in captures:
-            captured_piece_type = self.board.piece_type_at(move.to_square)
-            if self.board.is_en_passant(move):
-                captured_piece_type = chess.PAWN
-            static_move_val = val + PIECE_VALS[int(chess.WHITE)][captured_piece_type]
+        # if there are no legal moves then this is checkmate or stalemate
+        if not moves:
+            if is_check:
+                return -CHECKMATE_VAL
+            else:
+                return DRAW_VAL
 
-            # TODO take-back at leaf
+        if is_check:
+            # evaluate all moves when in check
+            qmoves = moves
+        else:
+            captures = [move for move in moves if self.board.is_capture(move)]
+
+            if DO_QSEARCH_MOVE_SORT:
+                captures.sort(key=lambda move: capture_value(self.board, move), reverse=True)
+
+            qmoves = captures
+        
+        for move in qmoves:
+            
+            if is_check and not self.board.is_capture(move):
+                static_move_val = val
+            else:
+                captured_piece_type = self.board.piece_type_at(move.to_square)
+                if self.board.is_en_passant(move):
+                    captured_piece_type = chess.PAWN
+                static_move_val = val + PIECE_VALS[int(chess.WHITE)][captured_piece_type]
+
+            # TODO take-backs at leaf
             move_eval = static_move_val
             if depth_from_qroot+1 < MAX_QDEPTH:
                 self.board.push(move)
