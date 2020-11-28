@@ -149,10 +149,11 @@ INFINITY_VAL = 1000000
 CHECKMATE_VAL = 20000
 DRAW_VAL = 0
 
-MAX_DEPTH = 3
+MAX_DEPTH = 4
 # I believe MAX_QDEPTH should be even to be conservative - i.e. always allow the opponent to make the last capture
-MAX_QDEPTH = 6
+MAX_QDEPTH = 12
 
+DO_SEARCH_MOVE_SORT = True
 DO_QSEARCH_MOVE_SORT = True
 
 # FEN representation of the board with the half-move and full-move counts removed
@@ -160,7 +161,7 @@ DO_QSEARCH_MOVE_SORT = True
 def fen4(board):
     return " ".join(board.fen().split()[:4])
 
-# Greatest victim least attacker
+# Greatest victim least attacker, else 0
 def qsearch_move_sort_key(board, move, is_check):
     if is_check and not board.is_capture(move):
         return 0
@@ -171,6 +172,50 @@ def qsearch_move_sort_key(board, move, is_check):
     attacker_piece_type = board.piece_type_at(move.from_square)
 
     return (captured_piece_type << 4) - attacker_piece_type
+
+SEARCH_MOVE_WINNING_CAPTURE_BASE = 4 * 1024
+SEARCH_MOVE_EVEN_CAPTURE_BASE = 3 * 1024
+SEARCH_MOVE_NON_LOSING_NON_CAPTURE_BASE = 2 * 1024
+SEARCH_MOVE_LOSING_CAPTURE_BASE = 1 * 1024
+SEARCH_MOVE_LOSING_NON_CAPTURE_BASE = 0 * 1024
+
+# For winning captures, greatest victim least attacker
+#   then non-losing non-captures by least attacker ? TODO - check this
+#   then even captures by greatest attacker
+#   then losing captures, greatest victim least attacker
+#   then losing non-captures by least attacker
+# TODO - penalise losing non-captures
+def search_move_sort_key(board, move):
+    moving_piece_type = board.piece_type_at(move.from_square)
+    is_capture = board.is_capture(move)
+    is_target_attacked = board.is_attacked_by(not board.turn, move.to_square)
+
+    if is_capture:
+        captured_piece_type = board.piece_type_at(move.to_square)
+        if board.is_en_passant(move):
+            captured_piece_type = chess.PAWN
+            
+        gvla = (captured_piece_type << 4) - moving_piece_type
+        if is_target_attacked:
+            
+            if captured_piece_type > moving_piece_type:
+                return SEARCH_MOVE_WINNING_CAPTURE_BASE + gvla
+            
+            if captured_piece_type == moving_piece_type:
+                return SEARCH_MOVE_EVEN_CAPTURE_BASE + captured_piece_type
+            
+            return SEARCH_MOVE_LOSING_CAPTURE_BASE + gvla
+
+        else:
+            return SEARCH_MOVE_WINNING_CAPTURE_BASE + gvla
+
+    else:
+        # non-capture
+        if is_target_attacked:
+            return SEARCH_MOVE_LOSING_NON_CAPTURE_BASE - moving_piece_type
+        else:
+            return SEARCH_MOVE_NON_LOSING_NON_CAPTURE_BASE - moving_piece_type
+
     
 
 class SearchStats:
@@ -353,17 +398,24 @@ class Game:
     def alphabeta(self, stats, depth_from_root, depth_to_go, alpha, beta):
         stats.n_nodes += 1
         stats.n_depth_nodes[depth_from_root] += 1
-        
-        if self.board.is_checkmate():
-            stats.n_win_nodes += 1
-            return None, -CHECKMATE_VAL + depth_from_root, []
 
+        moves = list(self.board.legal_moves)
+        
+        # if there are no legal moves then this is checkmate or stalemate
+        if not moves:
+            if self.board.is_check():
+                return None, -CHECKMATE_VAL, []
+            else:
+                stats.n_draw_nodes += 1
+                return None, DRAW_VAL, []
+        
         pos_fen4 = fen4(self.board)
         
-        if self.board.is_stalemate() or (depth_from_root != 0 and pos_fen4 in self.fen4s):
+        if depth_from_root != 0 and pos_fen4 in self.fen4s:
+            # TODO draw-rep nodes
             stats.n_draw_nodes += 1
             return None, DRAW_VAL, []
-        
+
         if depth_to_go == 0:
             stats.n_leaf_nodes += 1
             val = self.static_eval() * [-1, 1][int(self.board.turn)]
@@ -379,7 +431,10 @@ class Game:
 
         orig_alpha = alpha
 
-        for move in self.board.legal_moves:
+        if DO_SEARCH_MOVE_SORT:
+            moves.sort(key=lambda move: search_move_sort_key(self.board, move), reverse=True)
+                
+        for move in moves:
             self.board.push(move)
             child_best_move, child_eval, child_rpv = self.alphabeta(stats, depth_from_root+1, depth_to_go-1, -beta, -alpha)
             self.board.pop()
