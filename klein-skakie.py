@@ -149,13 +149,25 @@ INFINITY_VAL = 1000000
 CHECKMATE_VAL = 20000
 DRAW_VAL = 0
 
-MAX_DEPTH = 4
-MAX_QDEPTH = 4
+MAX_DEPTH = 3
+MAX_QDEPTH = 11
+
+DO_QSEARCH_MOVE_SORT = True
 
 # FEN representation of the board with the half-move and full-move counts removed
 # Used for repeated position checks
 def fen4(board):
     return " ".join(board.fen().split()[:4])
+
+# Greatest victim least attacker
+def capture_value(board, move):
+    captured_piece_type = board.piece_type_at(move.to_square)
+    if board.is_en_passant(move):
+        captured_piece_type = chess.PAWN
+    attacker_piece_type = board.piece_type_at(move.from_square)
+
+    return (captured_piece_type << 4) - attacker_piece_type
+    
 
 class SearchStats:
     def __init__(self, max_depth, max_qdepth):
@@ -281,33 +293,37 @@ class Game:
             return val
         
         best_eval = val
+
+        captures = [move for move in self.board.legal_moves if self.board.is_capture(move)]
+
+        if DO_QSEARCH_MOVE_SORT:
+            captures.sort(key=lambda move: capture_value(self.board, move), reverse=True)
         
-        for move in self.board.legal_moves:
-            if self.board.is_capture(move):
-                captured_piece_type = self.board.piece_type_at(move.to_square)
-                if self.board.is_en_passant(move):
-                    captured_piece_type = chess.PAWN
-                static_move_val = val + PIECE_VALS[int(chess.WHITE)][captured_piece_type]
+        for move in captures:
+            captured_piece_type = self.board.piece_type_at(move.to_square)
+            if self.board.is_en_passant(move):
+                captured_piece_type = chess.PAWN
+            static_move_val = val + PIECE_VALS[int(chess.WHITE)][captured_piece_type]
 
-                # TODO take-back at leaf
-                move_eval = static_move_val
-                if depth_from_qroot+1 < MAX_QDEPTH:
-                    self.board.push(move)
-                    move_eval = -self.quiesce_alphabeta(stats, depth_from_qroot+1, -static_move_val, -beta, -alpha)
-                    self.board.pop()
-                else:
-                    stats.n_qdepth_nodes[MAX_QDEPTH] += 1
+            # TODO take-back at leaf
+            move_eval = static_move_val
+            if depth_from_qroot+1 < MAX_QDEPTH:
+                self.board.push(move)
+                move_eval = -self.quiesce_alphabeta(stats, depth_from_qroot+1, -static_move_val, -beta, -alpha)
+                self.board.pop()
+            else:
+                stats.n_qdepth_nodes[MAX_QDEPTH] += 1
 
-                # Fail hard in q-search
-                if beta <= move_eval:
-                    stats.n_qcut_nodes += 1
-                    return beta
+            # Fail hard in q-search
+            if beta <= move_eval:
+                stats.n_qcut_nodes += 1
+                return beta
 
-                if alpha < move_eval:
-                    alpha = move_eval
+            if alpha < move_eval:
+                alpha = move_eval
         
-                if best_eval < move_eval:
-                    best_eval = move_eval
+            if best_eval < move_eval:
+                best_eval = move_eval
                     
         return best_eval
 
