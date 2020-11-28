@@ -161,7 +161,10 @@ def fen4(board):
     return " ".join(board.fen().split()[:4])
 
 # Greatest victim least attacker
-def capture_value(board, move):
+def qsearch_move_sort_key(board, move, is_check):
+    if is_check and not board.is_capture(move):
+        return 0
+    
     captured_piece_type = board.piece_type_at(move.to_square)
     if board.is_en_passant(move):
         captured_piece_type = chess.PAWN
@@ -309,13 +312,12 @@ class Game:
             # evaluate all moves when in check
             qmoves = moves
         else:
-            captures = [move for move in moves if self.board.is_capture(move)]
-
-            if DO_QSEARCH_MOVE_SORT:
-                captures.sort(key=lambda move: capture_value(self.board, move), reverse=True)
-
-            qmoves = captures
+            # ... otherwise just captures
+            qmoves = [move for move in moves if self.board.is_capture(move)]
         
+        if DO_QSEARCH_MOVE_SORT:
+            qmoves.sort(key=lambda move: qsearch_move_sort_key(self.board, move, is_check), reverse=True)
+                
         for move in qmoves:
             
             if is_check and not self.board.is_capture(move):
