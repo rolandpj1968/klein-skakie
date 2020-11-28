@@ -149,8 +149,8 @@ INFINITY_VAL = 1000000
 CHECKMATE_VAL = 20000
 DRAW_VAL = 0
 
-MAX_DEPTH = 3
-MAX_QDEPTH = 2
+MAX_DEPTH = 4
+MAX_QDEPTH = 4
 
 # FEN representation of the board with the half-move and full-move counts removed
 # Used for repeated position checks
@@ -166,8 +166,12 @@ class SearchStats:
         self.n_pv_nodes = 0
         self.n_cut_nodes = 0
         self.n_all_nodes = 0
-        self.n_qnodes = 0
         self.n_depth_nodes = [0] * (max_depth+1)
+
+        self.n_qnodes = 0
+        self.n_qpat_nodes = 0
+        self.n_qcut_nodes = 0
+        self.n_qdepth_nodes = [0] * (max_qdepth+1)
         
 class Game:
     def __init__(self, board = chess.Board()):
@@ -186,8 +190,11 @@ class Game:
                     val += PIECE_POS_VALS[color][piece_type][sq]
         return val
 
-    def quiesce_minimax(self, depth_from_qroot, val):
+    def quiesce_minimax(self, stats, depth_from_qroot, val):
         
+        stats.n_qnodes += 1
+        stats.n_qdepth_nodes[depth_from_qroot] += 1
+
         if depth_from_qroot >= MAX_QDEPTH:
             return val
         
@@ -204,8 +211,10 @@ class Game:
                 move_eval = static_move_val
                 if depth_from_qroot+1 < MAX_QDEPTH:
                     self.board.push(move)
-                    move_eval = -self.quiesce_minimax(depth_from_qroot+1, -static_move_val)
+                    move_eval = -self.quiesce_minimax(stats, depth_from_qroot+1, -static_move_val)
                     self.board.pop()
+                else:
+                    stats.n_qdepth_nodes[MAX_QDEPTH] += 1
 
                 if best_eval < move_eval:
                     best_eval = move_eval
@@ -229,7 +238,7 @@ class Game:
         if depth_to_go == 0:
             stats.n_leaf_nodes += 1
             val = self.static_eval() * [-1, 1][int(self.board.turn)]
-            qval = self.quiesce_minimax(0, val)
+            qval = self.quiesce_minimax(stats, 0, val)
             return None, qval, []
 
         if depth_from_root != 0:
@@ -258,10 +267,14 @@ class Game:
         return best_move, best_eval, best_rpv
 
     # return 
-    def quiesce_alphabeta(self, depth_from_qroot, val, alpha, beta):
+    def quiesce_alphabeta(self, stats, depth_from_qroot, val, alpha, beta):
+
+        stats.n_qnodes += 1
+        stats.n_qdepth_nodes[depth_from_qroot] += 1
 
         # Stand pat - fail hard
         if beta <= val:
+            stats.n_qpat_nodes += 1
             return beta
         
         if depth_from_qroot >= MAX_QDEPTH:
@@ -280,11 +293,14 @@ class Game:
                 move_eval = static_move_val
                 if depth_from_qroot+1 < MAX_QDEPTH:
                     self.board.push(move)
-                    move_eval = -self.quiesce_alphabeta(depth_from_qroot+1, -static_move_val, -beta, -alpha)
+                    move_eval = -self.quiesce_alphabeta(stats, depth_from_qroot+1, -static_move_val, -beta, -alpha)
                     self.board.pop()
+                else:
+                    stats.n_qdepth_nodes[MAX_QDEPTH] += 1
 
                 # Fail hard in q-search
                 if beta <= move_eval:
+                    stats.n_qcut_nodes += 1
                     return beta
 
                 if alpha < move_eval:
@@ -295,7 +311,7 @@ class Game:
                     
         return best_eval
 
-    def alphabeta(self, depth_from_root, depth_to_go, alpha, beta):
+    def alphabeta(self, stats, depth_from_root, depth_to_go, alpha, beta):
         stats.n_nodes += 1
         stats.n_depth_nodes[depth_from_root] += 1
         
@@ -312,7 +328,7 @@ class Game:
         if depth_to_go == 0:
             stats.n_leaf_nodes += 1
             val = self.static_eval() * [-1, 1][int(self.board.turn)]
-            qval = self.quiesce_alphabeta(0, val, alpha, beta)
+            qval = self.quiesce_alphabeta(stats, 0, val, alpha, beta)
             return None, qval, []
 
         if depth_from_root != 0:
@@ -326,7 +342,7 @@ class Game:
 
         for move in self.board.legal_moves:
             self.board.push(move)
-            child_best_move, child_eval, child_rpv = self.alphabeta(depth_from_root+1, depth_to_go-1, -beta, -alpha)
+            child_best_move, child_eval, child_rpv = self.alphabeta(stats, depth_from_root+1, depth_to_go-1, -beta, -alpha)
             self.board.pop()
 
             move_eval = -child_eval
@@ -394,7 +410,7 @@ class Game:
             print()
             val = self.static_eval()
             print("Static eval - positive is White advantage: %d" % val)
-            qval = self.quiesce_minimax(0, val)
+            qval = self.quiesce_minimax(SearchStats(MAX_DEPTH, MAX_QDEPTH), 0, val)
             print("Quiesced eval - positive is White advantage: %d" % qval)
             print()
             print("Legal moves: %s" % " ".join(legal_move_sans))
@@ -416,14 +432,14 @@ class Game:
                 print()
                 print("Calculating...")
                 stats = SearchStats(MAX_DEPTH, MAX_QDEPTH)
-                engine_move, val, rpv = self.minimax(stats, 0, MAX_DEPTH)
-                # engine_move, val, rpv = self.alphabeta(stats, 0, MAX_DEPTH, -INFINITY_VAL, INFINITY_VAL)
+                # engine_move, val, rpv = self.minimax(stats, 0, MAX_DEPTH)
+                engine_move, val, rpv = self.alphabeta(stats, 0, MAX_DEPTH, -INFINITY_VAL, INFINITY_VAL)
                 pv = rpv[::-1]
                 move_san = self.board.san(engine_move)
                 print("               ... klein skakie chooses move %s with eval %d centipawns using minimax (alphabeta) depth %d qdepth %d - PV is %s" % (move_san, val, MAX_DEPTH, MAX_QDEPTH, pv))
                 print()
-                print("nodes %d wins %d draws %d leaves %d pvs %d cuts %d alls %d" % (stats.n_nodes, stats.n_win_nodes, stats.n_draw_nodes, stats.n_leaf_nodes, stats.n_pv_nodes, stats.n_cut_nodes, stats.n_all_nodes))
-                print("nodes by depth: %s" % " ".join([str(n) for n in stats.n_depth_nodes]))
+                print("nodes %d wins %d draws %d leaves %d pvs %d cuts %d alls %d nodes by depth: %s" % (stats.n_nodes, stats.n_win_nodes, stats.n_draw_nodes, stats.n_leaf_nodes, stats.n_pv_nodes, stats.n_cut_nodes, stats.n_all_nodes, " ".join([str(n) for n in stats.n_depth_nodes])))
+                print("qnodes %d qpats %d qcuts %d qnodes by depth %s" % (stats.n_qnodes, stats.n_qpat_nodes, stats.n_qcut_nodes, " ".join([str(n) for n in stats.n_qdepth_nodes])))
 
             if not move_san in legal_move_sans:
                 print()
