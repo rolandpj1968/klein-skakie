@@ -150,12 +150,13 @@ CHECKMATE_VAL = 20000
 DRAW_VAL = 0
 
 MAX_DEPTH = 3
-# I believe MAX_QDEPTH should be even to be conservative - i.e. always allow the opponent to make the last capture
-MAX_QDEPTH = 12
+# I believe MAX_QDEPTH should be even in order to be conservative - i.e. always allow the opponent to make the last capture
+MAX_QDEPTH = 6
 
 DO_SEARCH_MOVE_SORT = True
 DO_QSEARCH_MOVE_SORT = True
 
+# Doesn't seem to help much over basic move ordering
 DO_USE_ID_PV = True
 
 # FEN representation of the board with the half-move and full-move counts removed
@@ -175,7 +176,7 @@ def qsearch_move_sort_key(board, move, is_check):
 
     return (captured_piece_type << 4) - attacker_piece_type
 
-SEARCH_MOVE_PV_MOVE = 5*1024
+SEARCH_MOVE_PV_MOVE = 5 * 1024
 SEARCH_MOVE_WINNING_CAPTURE_BASE = 4 * 1024
 SEARCH_MOVE_EVEN_CAPTURE_BASE = 3 * 1024
 SEARCH_MOVE_NON_LOSING_NON_CAPTURE_BASE = 2 * 1024
@@ -190,16 +191,8 @@ SEARCH_MOVE_LOSING_NON_CAPTURE_BASE = 0 * 1024
 # TODO - penalise losing non-captures
 def search_move_sort_key(board, move, pv_move):
     if DO_USE_ID_PV and move == pv_move:
-        # print("wooooooooooooooooooooooooo hooooooooooooooooooooooooooooooooooooo got sort key pv move!!!!!!!!!!!!!!!!")
         return SEARCH_MOVE_PV_MOVE
 
-    # if pv_move != None and move.from_square == pv_move.from_square and move.to_square == pv_move.to_square:
-    #     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1 wooooooooooooooooooooooooo hooooooooooooooooooooooooooooooooooooo got sort key pv move!!!!!!!!!!!!!!!!")
-    #     return SEARCH_MOVE_PV_MOVE
-    
-    # if pv_move:
-    #     print("            pv_move is here %s" % pv_move)
-        
     moving_piece_type = board.piece_type_at(move.from_square)
     is_capture = board.is_capture(move)
     is_target_attacked = board.is_attacked_by(not board.turn, move.to_square)
@@ -247,12 +240,16 @@ class SearchStats:
         self.n_qpat_nodes = 0
         self.n_qcut_nodes = 0
         self.n_qdepth_nodes = [0] * (max_qdepth+1)
-        
-class Game:
+
+class Engine:
     def __init__(self, board = chess.Board()):
         self.board = chess.Board()
         # TODO - add position history from board
         self.fen4s = set()
+
+    def make_move(self, move):
+        self.board.push(move)
+        self.fen4s.add(fen4(self.board))
 
     def static_eval(self):
         val = 0
@@ -467,24 +464,11 @@ class Game:
         pv_move = None
         child_pv = []
         if pv:
-            prev_pv_move = pv[0]
-            # TODO for why?
-            pv_move = self.board.find_move(prev_pv_move.from_square, prev_pv_move.to_square, prev_pv_move.promotion)
-            pv_move = prev_pv_move
-            # if pv_move:
-                # print("Wooooooooooooooooooooooooooooooooooo we found him %s" % pv_move)
-            if not pv_move in moves:
-                print("Booooooooooo we got this wrong! - pv_move is %s and board turn is %s; depth_from_root is %d; moves are %s" % (str(prev_pv_move), self.board.turn, depth_from_root, " ".join([str(move) for move in moves])))
-
-        # if depth_from_root == 0:
-        #     print("                       root node - pv_move is %s child_pv is %s" % (pv_move, child_pv))
+            pv_move = pv[0]
 
         if DO_SEARCH_MOVE_SORT:
             moves.sort(key=lambda move: search_move_sort_key(self.board, move, pv_move), reverse=True)
                 
-        # if depth_from_root == 0:
-        #     print("                    >>>root node - pv_move is %s best move is %s" % (pv_move, moves[0]))
-            
         for move in moves:
             if move == pv_move:
                 child_pv = pv[1:]
@@ -522,6 +506,23 @@ class Game:
             
         return best_move, best_eval, best_rpv
             
+    def gen_move(self):
+        print()
+        print("Calculating...")
+        stats = SearchStats(MAX_DEPTH, MAX_QDEPTH)
+        # engine_move, val, rpv = self.minimax(stats, 0, MAX_DEPTH)
+        engine_move, val, rpv = self.iterative_deepening(stats)
+        # engine_move, val, rpv = self.alphabeta(stats, [], 0, MAX_DEPTH, -INFINITY_VAL, INFINITY_VAL)
+        pv = rpv[::-1]
+        return engine_move, val, pv, stats
+        
+class Game:
+    def __init__(self, board = chess.Board()):
+        self.board = board
+        # TODO - separate engines for Black and White
+        # TODO - docs reckon this only copies the base-board - what about previous moves?
+        self.engine = Engine(board.copy())
+
     def play(self):
         print_board = True
         while True:
@@ -531,8 +532,10 @@ class Game:
             
             if print_board:
                 print(self.board.fen())
+                # print()
+                # print(self.board)
                 print()
-                print(self.board)
+                print(self.board.unicode(empty_square='.')) # Don't seem to have the default empty_square unicode in my font
                 print()
             print_board = True
 
@@ -558,9 +561,9 @@ class Game:
             
             print("%s to move" % ["Black", "White"][int(self.board.turn)])
             print()
-            val = self.static_eval()
+            val = self.engine.static_eval()
             print("Static eval - positive is White advantage: %d" % val)
-            qval = self.quiesce_minimax(SearchStats(MAX_DEPTH, MAX_QDEPTH), 0, val)
+            qval = self.engine.quiesce_minimax(SearchStats(MAX_DEPTH, MAX_QDEPTH), 0, val)
             print("Quiesced eval - positive is White advantage: %d" % qval)
             print()
             print("Legal moves: %s" % " ".join(legal_move_sans))
@@ -575,37 +578,34 @@ class Game:
                     print_board = False
                     continue
                 
-                self.board.push(chess.Move.null())
-                continue
+                move = chess.Move.null()
 
-            if move_san == 'engine':
-                print()
-                print("Calculating...")
-                stats = SearchStats(MAX_DEPTH, MAX_QDEPTH)
-                # engine_move, val, rpv = self.minimax(stats, 0, MAX_DEPTH)
-                engine_move, val, rpv = self.iterative_deepening(stats)
-                # engine_move, val, rpv = self.alphabeta(stats, 0, MAX_DEPTH, -INFINITY_VAL, INFINITY_VAL)
-                pv = rpv[::-1]
+            elif move_san == 'engine':
+                engine_move, val, pv, stats = self.engine.gen_move()
                 move_san = self.board.san(engine_move)
                 print("               ... klein skakie chooses move %s with eval %d centipawns using minimax (alphabeta) depth %d qdepth %d - PV is %s" % (move_san, val, MAX_DEPTH, MAX_QDEPTH, pv))
                 print()
                 print("nodes %d wins %d draws %d leaves %d pvs %d cuts %d alls %d nodes by depth: %s" % (stats.n_nodes, stats.n_win_nodes, stats.n_draw_nodes, stats.n_leaf_nodes, stats.n_pv_nodes, stats.n_cut_nodes, stats.n_all_nodes, " ".join([str(n) for n in stats.n_depth_nodes])))
                 print("qnodes %d qpats %d qcuts %d qnodes by depth %s" % (stats.n_qnodes, stats.n_qpat_nodes, stats.n_qcut_nodes, " ".join([str(n) for n in stats.n_qdepth_nodes])))
 
-            if not move_san in legal_move_sans:
-                print()
-                print(">>> Illegal move \"%s\" entered <<<" % move_san)
-                print_board = False
-                continue
+                move = engine_move
 
-            self.board.push_san(move_san)
-            self.fen4s.add(fen4(self.board))
+            else:
+                if not move_san in legal_move_sans:
+                    print()
+                    print(">>> Illegal move \"%s\" entered <<<" % move_san)
+                    print_board = False
+                    continue
+
+                move = self.board.parse_san(move_san)
+                
+            self.board.push(move)
+            self.engine.make_move(move)
 
 def main():
     print("Hallo RPJ - let's play chess")
     game = Game()
     game.play()
-    
 
 if __name__ == "__main__":
     main()
