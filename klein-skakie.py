@@ -149,12 +149,14 @@ INFINITY_VAL = 1000000
 CHECKMATE_VAL = 20000
 DRAW_VAL = 0
 
-MAX_DEPTH = 4
+MAX_DEPTH = 3
 # I believe MAX_QDEPTH should be even to be conservative - i.e. always allow the opponent to make the last capture
 MAX_QDEPTH = 12
 
 DO_SEARCH_MOVE_SORT = True
 DO_QSEARCH_MOVE_SORT = True
+
+DO_USE_ID_PV = True
 
 # FEN representation of the board with the half-move and full-move counts removed
 # Used for repeated position checks
@@ -173,6 +175,7 @@ def qsearch_move_sort_key(board, move, is_check):
 
     return (captured_piece_type << 4) - attacker_piece_type
 
+SEARCH_MOVE_PV_MOVE = 5*1024
 SEARCH_MOVE_WINNING_CAPTURE_BASE = 4 * 1024
 SEARCH_MOVE_EVEN_CAPTURE_BASE = 3 * 1024
 SEARCH_MOVE_NON_LOSING_NON_CAPTURE_BASE = 2 * 1024
@@ -185,7 +188,18 @@ SEARCH_MOVE_LOSING_NON_CAPTURE_BASE = 0 * 1024
 #   then losing captures, greatest victim least attacker
 #   then losing non-captures by least attacker
 # TODO - penalise losing non-captures
-def search_move_sort_key(board, move):
+def search_move_sort_key(board, move, pv_move):
+    if DO_USE_ID_PV and move == pv_move:
+        # print("wooooooooooooooooooooooooo hooooooooooooooooooooooooooooooooooooo got sort key pv move!!!!!!!!!!!!!!!!")
+        return SEARCH_MOVE_PV_MOVE
+
+    # if pv_move != None and move.from_square == pv_move.from_square and move.to_square == pv_move.to_square:
+    #     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1 wooooooooooooooooooooooooo hooooooooooooooooooooooooooooooooooooo got sort key pv move!!!!!!!!!!!!!!!!")
+    #     return SEARCH_MOVE_PV_MOVE
+    
+    # if pv_move:
+    #     print("            pv_move is here %s" % pv_move)
+        
     moving_piece_type = board.piece_type_at(move.from_square)
     is_capture = board.is_capture(move)
     is_target_attacked = board.is_attacked_by(not board.turn, move.to_square)
@@ -251,6 +265,25 @@ class Game:
                     val += PIECE_POS_VALS[color][piece_type][sq]
         return val
 
+    def iterative_deepening(self, stats):
+        pv = []
+        for depth_to_go in [n+1 for n in range(MAX_DEPTH)]:
+            print()
+            print("ID %d                                                                                                     <<< !!! ID %d" % (depth_to_go, depth_to_go))
+            print()
+            stats = SearchStats(depth_to_go, MAX_QDEPTH)
+            # engine_move, val, rpv = self.minimax(stats, 0, MAX_DEPTH)
+            engine_move, val, rpv = self.alphabeta(stats, pv, 0, depth_to_go, -INFINITY_VAL, INFINITY_VAL)
+            pv = rpv[::-1]
+            move_san = self.board.san(engine_move)
+            print()
+            print("               ... klein skakie chooses move %s with eval %d centipawns using minimax (alphabeta) depth %d qdepth %d - PV is %s" % (move_san, val, depth_to_go, MAX_QDEPTH, pv))
+            print()
+            print("nodes %d wins %d draws %d leaves %d pvs %d cuts %d alls %d nodes by depth: %s" % (stats.n_nodes, stats.n_win_nodes, stats.n_draw_nodes, stats.n_leaf_nodes, stats.n_pv_nodes, stats.n_cut_nodes, stats.n_all_nodes, " ".join([str(n) for n in stats.n_depth_nodes])))
+            print("qnodes %d qpats %d qcuts %d qnodes by depth %s" % (stats.n_qnodes, stats.n_qpat_nodes, stats.n_qcut_nodes, " ".join([str(n) for n in stats.n_qdepth_nodes])))
+        print()
+        return engine_move, val, rpv
+        
     def quiesce_minimax(self, stats, depth_from_qroot, val):
         
         stats.n_qnodes += 1
@@ -395,7 +428,7 @@ class Game:
                     
         return best_eval
 
-    def alphabeta(self, stats, depth_from_root, depth_to_go, alpha, beta):
+    def alphabeta(self, stats, pv, depth_from_root, depth_to_go, alpha, beta):
         stats.n_nodes += 1
         stats.n_depth_nodes[depth_from_root] += 1
 
@@ -431,12 +464,35 @@ class Game:
 
         orig_alpha = alpha
 
+        pv_move = None
+        child_pv = []
+        if pv:
+            prev_pv_move = pv[0]
+            # TODO for why?
+            pv_move = self.board.find_move(prev_pv_move.from_square, prev_pv_move.to_square, prev_pv_move.promotion)
+            pv_move = prev_pv_move
+            # if pv_move:
+                # print("Wooooooooooooooooooooooooooooooooooo we found him %s" % pv_move)
+            if not pv_move in moves:
+                print("Booooooooooo we got this wrong! - pv_move is %s and board turn is %s; depth_from_root is %d; moves are %s" % (str(prev_pv_move), self.board.turn, depth_from_root, " ".join([str(move) for move in moves])))
+
+        # if depth_from_root == 0:
+        #     print("                       root node - pv_move is %s child_pv is %s" % (pv_move, child_pv))
+
         if DO_SEARCH_MOVE_SORT:
-            moves.sort(key=lambda move: search_move_sort_key(self.board, move), reverse=True)
+            moves.sort(key=lambda move: search_move_sort_key(self.board, move, pv_move), reverse=True)
                 
+        # if depth_from_root == 0:
+        #     print("                    >>>root node - pv_move is %s best move is %s" % (pv_move, moves[0]))
+            
         for move in moves:
+            if move == pv_move:
+                child_pv = pv[1:]
+            else:
+                child_pv = []
+                
             self.board.push(move)
-            child_best_move, child_eval, child_rpv = self.alphabeta(stats, depth_from_root+1, depth_to_go-1, -beta, -alpha)
+            child_best_move, child_eval, child_rpv = self.alphabeta(stats, child_pv, depth_from_root+1, depth_to_go-1, -beta, -alpha)
             self.board.pop()
 
             move_eval = -child_eval
@@ -453,7 +509,7 @@ class Game:
             if best_eval < move_eval:
                 best_move = move
                 best_eval = move_eval
-                child_rpv.append(self.board.san(move))
+                child_rpv.append(move)
                 best_rpv = child_rpv
 
         if depth_from_root != 0:
@@ -527,7 +583,8 @@ class Game:
                 print("Calculating...")
                 stats = SearchStats(MAX_DEPTH, MAX_QDEPTH)
                 # engine_move, val, rpv = self.minimax(stats, 0, MAX_DEPTH)
-                engine_move, val, rpv = self.alphabeta(stats, 0, MAX_DEPTH, -INFINITY_VAL, INFINITY_VAL)
+                engine_move, val, rpv = self.iterative_deepening(stats)
+                # engine_move, val, rpv = self.alphabeta(stats, 0, MAX_DEPTH, -INFINITY_VAL, INFINITY_VAL)
                 pv = rpv[::-1]
                 move_san = self.board.san(engine_move)
                 print("               ... klein skakie chooses move %s with eval %d centipawns using minimax (alphabeta) depth %d qdepth %d - PV is %s" % (move_san, val, MAX_DEPTH, MAX_QDEPTH, pv))
