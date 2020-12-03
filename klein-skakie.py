@@ -62,6 +62,7 @@ class Game:
             print("Legal moves: %s" % " ".join(legal_move_sans))
             print()
             move_san = input("Enter move - SAN format - or 'pass' or 'engine': ")
+            print()
 
             if move_san == "pass":
                 # null move - let the other side move

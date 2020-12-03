@@ -33,6 +33,8 @@ class Engine:
         self.board = chess.Board()
         # TODO - add position history from board
         self.fen4s = set()
+        # map: fen4 -> chess.Move
+        self.tt = {}
 
     def make_move(self, move):
         self.board.push(move)
@@ -167,7 +169,8 @@ class Engine:
 
         if DO_SEARCH_MOVE_SORT:
             moves.sort(key=lambda move: search_move_sort_key(self.board, move, pv_move), reverse=True)
-                
+
+        move_no = 0
         for move in moves:
             if move == pv_move:
                 child_pv = pv[1:]
@@ -181,17 +184,19 @@ class Engine:
             move_eval = -child_eval
 
             if best_eval < move_eval:
+                best_move = move
                 best_eval = move_eval
                 
                 if beta <= move_eval:
                     break
                 
-                best_move = move
                 child_rpv.append(move)
                 best_rpv = child_rpv
 
             if alpha < move_eval:
                 alpha = move_eval
+
+            move_no += 1
         
         if depth_from_root != 0:
             self.fen4s.remove(pos_fen4)
@@ -202,11 +207,17 @@ class Engine:
             stats.n_pv_nodes += 1
         else:
             stats.n_all_nodes += 1
+
+        # Add move to TT if it's not an all node
+        if orig_alpha < best_eval and move_no != 0:
+            self.tt[pos_fen4] = best_move
             
         return best_move, best_eval, best_rpv
             
     def gen_move(self):
+        self.tt.clear()
         engine_move, val, rpv, stats = self.iterative_deepening()
+        print("                                                      tt size is %d" % len(self.tt))
         pv = rpv[::-1]
         return engine_move, val, pv, stats
         
