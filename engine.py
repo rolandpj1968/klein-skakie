@@ -46,7 +46,6 @@ class Engine:
         stats = None
         for depth_to_go in [n+1 for n in range(MAX_DEPTH)]:
             stats = SearchStats(depth_to_go, MAX_QDEPTH)
-            # engine_move, val, rpv = self.minimax(stats, 0, MAX_DEPTH)
             engine_move, val, rpv = self.alphabeta(stats, pv, 0, depth_to_go)
             pv = rpv[::-1]
             move_san = self.board.san(engine_move)
@@ -56,82 +55,6 @@ class Engine:
         print()
         return engine_move, val, rpv, stats
         
-    def quiesce_minimax(self, stats, depth_from_qroot, val):
-        
-        stats.n_qnodes += 1
-        stats.n_qdepth_nodes[depth_from_qroot] += 1
-
-        if depth_from_qroot >= MAX_QDEPTH:
-            return val
-        
-        best_eval = val
-        
-        for move in self.board.legal_moves:
-            if self.board.is_capture(move):
-                captured_piece_type = self.board.piece_type_at(move.to_square)
-                if self.board.is_en_passant(move):
-                    captured_piece_type = chess.PAWN
-                static_move_val = val + evaluate.PIECE_VALS[chess.WHITE][captured_piece_type]
-
-                # TODO take-back at leaf
-                move_eval = static_move_val
-                if depth_from_qroot+1 < MAX_QDEPTH:
-                    self.board.push(move)
-                    move_eval = -self.quiesce_minimax(stats, depth_from_qroot+1, -static_move_val)
-                    self.board.pop()
-                else:
-                    stats.n_qdepth_nodes[MAX_QDEPTH] += 1
-
-                if best_eval < move_eval:
-                    best_eval = move_eval
-                    
-        return best_eval
-
-    def minimax(self, stats, depth_from_root, depth_to_go):
-        stats.n_nodes += 1
-        stats.n_depth_nodes[depth_from_root] += 1
-        
-        if self.board.is_checkmate():
-            stats.n_win_nodes += 1
-            return None, -CHECKMATE_VAL + depth_from_root, []
-
-        pos_fen4 = fen4(self.board)
-        
-        if self.board.is_stalemate() or (depth_from_root != 0 and pos_fen4 in self.fen4s):
-            stats.n_draw_nodes += 1
-            return None, DRAW_VAL, []
-        
-        if depth_to_go == 0:
-            stats.n_leaf_nodes += 1
-            val = self.static_eval() * [-1, 1][self.board.turn]
-            qval = self.quiesce_minimax(stats, 0, val)
-            return None, qval, []
-
-        if depth_from_root != 0:
-            self.fen4s.add(pos_fen4)
-
-        best_move = None
-        best_eval = -INFINITY_VAL
-        best_rpv = []
-
-        for move in self.board.legal_moves:
-            self.board.push(move)
-            child_best_move, child_eval, child_rpv = self.minimax(stats, depth_from_root+1, depth_to_go-1)
-            self.board.pop()
-
-            move_eval = -child_eval
-        
-            if best_eval < move_eval:
-                best_move = move
-                best_eval = move_eval
-                child_rpv.append(self.board.san(move))
-                best_rpv = child_rpv
-
-        if depth_from_root != 0:
-            self.fen4s.remove(pos_fen4)
-            
-        return best_move, best_eval, best_rpv
-
     # return 
     def quiesce_alphabeta(self, stats, depth_from_qroot, val, alpha = -evaluate.INFINITY_VAL, beta = evaluate.INFINITY_VAL):
 
@@ -154,9 +77,9 @@ class Engine:
         # if there are no legal moves then this is checkmate or stalemate
         if not moves:
             if is_check:
-                return -CHECKMATE_VAL
+                return -evaluate.CHECKMATE_VAL
             else:
-                return DRAW_VAL
+                return evaluate.DRAW_VAL
 
         if is_check:
             # evaluate all moves when in check
@@ -210,17 +133,17 @@ class Engine:
         if not moves:
             if self.board.is_check():
                 stats.n_win_nodes += 1
-                return None, -CHECKMATE_VAL, []
+                return None, -evaluate.CHECKMATE_VAL, []
             else:
                 stats.n_draw_nodes += 1
-                return None, DRAW_VAL, []
+                return None, evaluate.DRAW_VAL, []
         
         pos_fen4 = fen4(self.board)
         
         if depth_from_root != 0 and pos_fen4 in self.fen4s:
             # TODO draw-rep nodes
             stats.n_draw_nodes += 1
-            return None, DRAW_VAL, []
+            return None, evaluate.DRAW_VAL, []
 
         if depth_to_go == 0:
             stats.n_leaf_nodes += 1
@@ -257,25 +180,25 @@ class Engine:
 
             move_eval = -child_eval
 
-            if beta <= move_eval:
-                stats.n_cut_nodes += 1
-                if depth_from_root != 0:
-                    self.fen4s.remove(pos_fen4)
-                return None, move_eval, []
+            if best_eval < move_eval:
+                best_eval = move_eval
+                
+                if beta <= move_eval:
+                    break
+                
+                best_move = move
+                child_rpv.append(move)
+                best_rpv = child_rpv
 
             if alpha < move_eval:
                 alpha = move_eval
         
-            if best_eval < move_eval:
-                best_move = move
-                best_eval = move_eval
-                child_rpv.append(move)
-                best_rpv = child_rpv
-
         if depth_from_root != 0:
             self.fen4s.remove(pos_fen4)
 
-        if orig_alpha < best_eval:
+        if beta <= best_eval:
+            stats.n_cut_nodes += 1
+        elif orig_alpha < best_eval:
             stats.n_pv_nodes += 1
         else:
             stats.n_all_nodes += 1
@@ -283,12 +206,7 @@ class Engine:
         return best_move, best_eval, best_rpv
             
     def gen_move(self):
-        print()
-        print("Calculating...")
-        # stats = SearchStats(MAX_DEPTH, MAX_QDEPTH)
-        # engine_move, val, rpv = self.minimax(stats, 0, MAX_DEPTH)
         engine_move, val, rpv, stats = self.iterative_deepening()
-        # engine_move, val, rpv = self.alphabeta(stats, [], 0, MAX_DEPTH)
         pv = rpv[::-1]
         return engine_move, val, pv, stats
         

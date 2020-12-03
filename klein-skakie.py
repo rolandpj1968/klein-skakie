@@ -56,7 +56,7 @@ class Game:
             print()
             val = self.engine.static_eval()
             print("Static eval - positive is White advantage: %d" % val)
-            # qval = self.engine.quiesce_minimax(SearchStats(MAX_DEPTH, MAX_QDEPTH), 0, val)
+            # qval = self.engine.quiesce_alphabeta(SearchStats(MAX_DEPTH, MAX_QDEPTH), 0, val)
             # print("Quiesced eval - positive is White advantage: %d" % qval)
             print()
             print("Legal moves: %s" % " ".join(legal_move_sans))
@@ -75,12 +75,7 @@ class Game:
 
             elif move_san == 'engine':
                 engine_move, val, pv, stats = self.engine.gen_move()
-                move_san = self.board.san(engine_move)
-                # print("               ... klein skakie chooses move %s with eval %d centipawns using minimax (alphabeta) depth %d qdepth %d - PV is %s" % (move_san, val, MAX_DEPTH, MAX_QDEPTH, pv))
-                # print()
-                # print("nodes %d wins %d draws %d leaves %d pvs %d cuts %d alls %d nodes by depth: %s" % (stats.n_nodes, stats.n_win_nodes, stats.n_draw_nodes, stats.n_leaf_nodes, stats.n_pv_nodes, stats.n_cut_nodes, stats.n_all_nodes, " ".join([str(n) for n in stats.n_depth_nodes])))
-                # print("qnodes %d qpats %d qcuts %d qnodes by depth %s" % (stats.n_qnodes, stats.n_qpat_nodes, stats.n_qcut_nodes, " ".join([str(n) for n in stats.n_qdepth_nodes])))
-
+                
                 move = engine_move
 
             else:
