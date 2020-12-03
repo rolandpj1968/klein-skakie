@@ -1,4 +1,6 @@
+import time
 import sys
+
 import chess
 
 from util import fen4, move_list_to_sans
@@ -16,7 +18,8 @@ class Game:
         # TODO - docs reckon this only copies the base-board - what about previous moves?
         self.engine = Engine(board.copy())
 
-    def play(self):
+    def play(self, engine_time_allowed_s = 0):
+        total_engine_time_s = 0
         print_board = True
         while True:
             legal_move_sans = [self.board.san(m) for m in self.board.legal_moves]
@@ -75,7 +78,13 @@ class Game:
                 move = chess.Move.null()
 
             elif move_san == 'engine':
-                engine_move, val, pv, stats = self.engine.gen_move()
+                engine_time_left_s = engine_time_allowed_s - total_engine_time_s
+                start_time_s = time.time()
+                engine_move, val, pv, stats = self.engine.gen_move(engine_time_left_s)
+                end_time_s = time.time()
+                elapsed_time_s = end_time_s - start_time_s
+                total_engine_time_s += elapsed_time_s
+                print("                                                                 total engine time %.3fs of target %.3fs" % (total_engine_time_s, engine_time_allowed_s))
                 
                 move = engine_move
 
@@ -94,7 +103,7 @@ class Game:
 def main():
     print("Hallo RPJ - let's play chess")
     game = Game()
-    game.play()
+    game.play(3*60)
 
 if __name__ == "__main__":
     main()

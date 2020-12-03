@@ -1,3 +1,4 @@
+import time
 import chess
 
 import evaluate
@@ -33,6 +34,8 @@ class Engine:
         self.board = chess.Board()
         # TODO - add position history from board
         self.fen4s = set()
+        # increments on each gen_move() - used to clear out TT of old cruft
+        self.tt_epoch = 0
         # map: fen4 -> chess.Move
         self.tt = {}
 
@@ -43,17 +46,29 @@ class Engine:
     def static_eval(self):
         return evaluate.static_eval(self.board)
 
-    def iterative_deepening(self):
+    def iterative_deepening(self, time_limit_s):
+        print("                                                               id time limit is %.3fs" % time_limit_s)
+        max_depth = MAX_DEPTH
+        if time_limit_s > 0:
+            max_depth = 16
+        id_start_time_s = time.time() 
         pv = []
         stats = None
-        for depth_to_go in [n+1 for n in range(MAX_DEPTH)]:
+        for depth_to_go in [n+1 for n in range(max_depth)]:
             stats = SearchStats(depth_to_go, MAX_QDEPTH)
+            depth_start_time_s = time.time()
             engine_move, val, rpv = self.alphabeta(stats, pv, 0, depth_to_go)
+            depth_end_time_s = time.time()
+            depth_elapsed_time_s = depth_end_time_s - depth_start_time_s
             pv = rpv[::-1]
             move_san = self.board.san(engine_move)
-            print("    depth %d %s eval %d cp %s" % (depth_to_go, move_san, val, move_list_to_sans(self.board, pv)))
+            print("    depth %d %.3fs %s eval %d cp %s" % (depth_to_go, depth_elapsed_time_s, move_san, val, move_list_to_sans(self.board, pv)))
             print("                                        nodes %d wins %d draws %d leaves %d pvs %d cuts %d alls %d nodes by depth: %s" % (stats.n_nodes, stats.n_win_nodes, stats.n_draw_nodes, stats.n_leaf_nodes, stats.n_pv_nodes, stats.n_cut_nodes, stats.n_all_nodes, " ".join([str(n) for n in stats.n_depth_nodes])))
             print("                                        qnodes %d qpats %d qcuts %d qnodes by depth %s" % (stats.n_qnodes, stats.n_qpat_nodes, stats.n_qcut_nodes, " ".join([str(n) for n in stats.n_qdepth_nodes])))
+            id_elapsed_time_s = depth_end_time_s - id_start_time_s
+            print("                                                               id time limit is %.3fs - elapsed time is %.3fs" % (time_limit_s, id_elapsed_time_s))
+            if time_limit_s != 0 and id_elapsed_time_s >= time_limit_s:
+                break
         print()
         return engine_move, val, rpv, stats
         
@@ -218,9 +233,11 @@ class Engine:
             
         return best_move, best_eval, best_rpv
             
-    def gen_move(self):
+    def gen_move(self, remaining_time_s = 0):
+        self.tt_epoch += 1
         self.tt.clear()
-        engine_move, val, rpv, stats = self.iterative_deepening()
+        time_limit_s = remaining_time_s/128
+        engine_move, val, rpv, stats = self.iterative_deepening(time_limit_s)
         print("                                                      tt size is %d" % len(self.tt))
         pv = rpv[::-1]
         return engine_move, val, pv, stats
