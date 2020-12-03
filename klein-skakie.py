@@ -151,9 +151,9 @@ INFINITY_VAL = 1000000
 CHECKMATE_VAL = 20000
 DRAW_VAL = 0
 
-MAX_DEPTH = 3
+MAX_DEPTH = 4
 # I believe MAX_QDEPTH should be even in order to be conservative - i.e. always allow the opponent to make the last capture
-MAX_QDEPTH = 6
+MAX_QDEPTH = 24
 
 DO_SEARCH_MOVE_SORT = True
 DO_QSEARCH_MOVE_SORT = True
@@ -210,16 +210,16 @@ def search_move_sort_key(board, move, pv_move):
     is_capture = board.is_capture(move)
     is_target_attacked = board.is_attacked_by(not board.turn, move.to_square)
 
-    moving_piece_val = PIECE_VALS[int(chess.WHITE)][moving_piece_type]
-    moving_piece_pp = PIECE_POS_VALS[int(board.turn)][moving_piece_type]
-    pp_delta = (moving_piece_pp[move.to_square] - moving_piece_pp[move.from_square]) * [-1, 1][int(board.turn)]
+    moving_piece_val = PIECE_VALS[chess.WHITE][moving_piece_type]
+    moving_piece_pp = PIECE_POS_VALS[board.turn][moving_piece_type]
+    pp_delta = (moving_piece_pp[move.to_square] - moving_piece_pp[move.from_square]) * [-1, 1][board.turn]
 
     if is_capture:
         captured_piece_type = board.piece_type_at(move.to_square)
         if board.is_en_passant(move):
             captured_piece_type = chess.PAWN
 
-        captured_piece_val = PIECE_VALS[int(chess.WHITE)][captured_piece_type]
+        captured_piece_val = PIECE_VALS[chess.WHITE][captured_piece_type]
         
         gvla = (captured_piece_val << 10) - moving_piece_val
         if is_target_attacked:
@@ -279,12 +279,17 @@ class Engine:
     def static_eval(self):
         val = 0
         for color in [chess.BLACK, chess.WHITE]:
+            color_piece_vals = PIECE_VALS[color]
+            color_piece_pos_vals = PIECE_POS_VALS[color]
             for piece_type in [chess.PAWN,  chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING]:
                 sqSet = self.board.pieces(piece_type, color)
-                while sqSet != 0:
-                    sq = sqSet.pop()
-                    val += PIECE_VALS[color][piece_type]
-                    val += PIECE_POS_VALS[color][piece_type][sq]
+                if sqSet != 0:
+                    piece_val = color_piece_vals[piece_type]
+                    piece_pos_vals = color_piece_pos_vals[piece_type]
+                    while sqSet != 0:
+                        sq = sqSet.pop()
+                        val += piece_val
+                        val += piece_pos_vals[sq]
         return val
 
     def iterative_deepening(self, stats):
@@ -316,7 +321,7 @@ class Engine:
                 captured_piece_type = self.board.piece_type_at(move.to_square)
                 if self.board.is_en_passant(move):
                     captured_piece_type = chess.PAWN
-                static_move_val = val + PIECE_VALS[int(chess.WHITE)][captured_piece_type]
+                static_move_val = val + PIECE_VALS[chess.WHITE][captured_piece_type]
 
                 # TODO take-back at leaf
                 move_eval = static_move_val
@@ -348,7 +353,7 @@ class Engine:
         
         if depth_to_go == 0:
             stats.n_leaf_nodes += 1
-            val = self.static_eval() * [-1, 1][int(self.board.turn)]
+            val = self.static_eval() * [-1, 1][self.board.turn]
             qval = self.quiesce_minimax(stats, 0, val)
             return None, qval, []
 
@@ -421,7 +426,7 @@ class Engine:
                 captured_piece_type = self.board.piece_type_at(move.to_square)
                 if self.board.is_en_passant(move):
                     captured_piece_type = chess.PAWN
-                static_move_val = val + PIECE_VALS[int(chess.WHITE)][captured_piece_type]
+                static_move_val = val + PIECE_VALS[chess.WHITE][captured_piece_type]
 
             # TODO take-backs at leaf
             move_eval = static_move_val
@@ -469,7 +474,7 @@ class Engine:
 
         if depth_to_go == 0:
             stats.n_leaf_nodes += 1
-            val = self.static_eval() * [-1, 1][int(self.board.turn)]
+            val = self.static_eval() * [-1, 1][self.board.turn]
             qval = self.quiesce_alphabeta(stats, 0, val, alpha, beta)
             return None, qval, []
 
@@ -556,7 +561,7 @@ class Game:
                 # print()
                 # print(self.board)
                 print()
-                print(self.board.unicode(empty_square='.')) # Don't seem to have the default empty_square unicode in my font
+                print(self.board.unicode(invert_color=True, empty_square='.')) # Unicode chars seems backwards; Don't seem to have the default empty_square unicode in my font
                 print()
             print_board = True
 
@@ -580,12 +585,12 @@ class Game:
                 print("Moves: %s" % move_list_to_sans(self.board.root(), self.board.move_stack))
                 return
             
-            print("%s to move" % ["Black", "White"][int(self.board.turn)])
+            print("%s to move" % ["Black", "White"][self.board.turn])
             print()
             val = self.engine.static_eval()
             print("Static eval - positive is White advantage: %d" % val)
-            qval = self.engine.quiesce_minimax(SearchStats(MAX_DEPTH, MAX_QDEPTH), 0, val)
-            print("Quiesced eval - positive is White advantage: %d" % qval)
+            # qval = self.engine.quiesce_minimax(SearchStats(MAX_DEPTH, MAX_QDEPTH), 0, val)
+            # print("Quiesced eval - positive is White advantage: %d" % qval)
             print()
             print("Legal moves: %s" % " ".join(legal_move_sans))
             print()
