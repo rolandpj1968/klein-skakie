@@ -1,6 +1,8 @@
 import sys
 import chess
 
+import cProfile
+
 # From Sunfish
 PIECE_VALS = (
     # BLACK
@@ -164,6 +166,16 @@ DO_USE_ID_PV = True
 def fen4(board):
     return " ".join(board.fen().split()[:4])
 
+def move_list_to_sans(orig_board, moves):
+    board = orig_board.copy()
+    
+    sans = []
+    for move in moves:
+        sans.append(board.san(move))
+        board.push(move)
+
+    return sans
+
 # Greatest victim least attacker, else 0
 def qsearch_move_sort_key(board, move, is_check):
     if is_check and not board.is_capture(move):
@@ -184,7 +196,7 @@ SEARCH_MOVE_LOSING_CAPTURE_BASE = 1 * 1024
 SEARCH_MOVE_LOSING_NON_CAPTURE_BASE = 0 * 1024
 
 # For winning captures, greatest victim least attacker
-#   then non-losing non-captures by least attacker ? TODO - check this
+#   then non-losing non-captures by least attacker ? TODO - check this - gonna try piece-pos-delta
 #   then even captures by greatest attacker
 #   then losing captures, greatest victim least attacker
 #   then losing non-captures by least attacker
@@ -206,22 +218,29 @@ def search_move_sort_key(board, move, pv_move):
         if is_target_attacked:
             
             if captured_piece_type > moving_piece_type:
+                # Winning capture #1
                 return SEARCH_MOVE_WINNING_CAPTURE_BASE + gvla
             
             if captured_piece_type == moving_piece_type:
+                # Even capture
                 return SEARCH_MOVE_EVEN_CAPTURE_BASE + captured_piece_type
-            
+
+            # Losing capture
             return SEARCH_MOVE_LOSING_CAPTURE_BASE + gvla
 
         else:
+            # Winning captured #2 - clean capture 
             return SEARCH_MOVE_WINNING_CAPTURE_BASE + gvla
 
     else:
         # non-capture
+
+        pp_delta = (PIECE_POS_VALS[int(board.turn)][moving_piece_type][move.to_square] - PIECE_POS_VALS[int(board.turn)][moving_piece_type][move.from_square]) * [-1, 1][int(board.turn)]
+        
         if is_target_attacked:
             return SEARCH_MOVE_LOSING_NON_CAPTURE_BASE - moving_piece_type
         else:
-            return SEARCH_MOVE_NON_LOSING_NON_CAPTURE_BASE - moving_piece_type
+            return SEARCH_MOVE_NON_LOSING_NON_CAPTURE_BASE + pp_delta # - moving_piece_type
 
     
 
@@ -265,19 +284,14 @@ class Engine:
     def iterative_deepening(self, stats):
         pv = []
         for depth_to_go in [n+1 for n in range(MAX_DEPTH)]:
-            print()
-            print("ID %d                                                                                                     <<< !!! ID %d" % (depth_to_go, depth_to_go))
-            print()
             stats = SearchStats(depth_to_go, MAX_QDEPTH)
             # engine_move, val, rpv = self.minimax(stats, 0, MAX_DEPTH)
             engine_move, val, rpv = self.alphabeta(stats, pv, 0, depth_to_go, -INFINITY_VAL, INFINITY_VAL)
             pv = rpv[::-1]
             move_san = self.board.san(engine_move)
-            print()
-            print("               ... klein skakie chooses move %s with eval %d centipawns using minimax (alphabeta) depth %d qdepth %d - PV is %s" % (move_san, val, depth_to_go, MAX_QDEPTH, pv))
-            print()
-            print("nodes %d wins %d draws %d leaves %d pvs %d cuts %d alls %d nodes by depth: %s" % (stats.n_nodes, stats.n_win_nodes, stats.n_draw_nodes, stats.n_leaf_nodes, stats.n_pv_nodes, stats.n_cut_nodes, stats.n_all_nodes, " ".join([str(n) for n in stats.n_depth_nodes])))
-            print("qnodes %d qpats %d qcuts %d qnodes by depth %s" % (stats.n_qnodes, stats.n_qpat_nodes, stats.n_qcut_nodes, " ".join([str(n) for n in stats.n_qdepth_nodes])))
+            print("    depth %d %s eval %d cp %s" % (depth_to_go, move_san, val, move_list_to_sans(self.board, pv)))
+            print("                                        nodes %d wins %d draws %d leaves %d pvs %d cuts %d alls %d nodes by depth: %s" % (stats.n_nodes, stats.n_win_nodes, stats.n_draw_nodes, stats.n_leaf_nodes, stats.n_pv_nodes, stats.n_cut_nodes, stats.n_all_nodes, " ".join([str(n) for n in stats.n_depth_nodes])))
+            print("                                        qnodes %d qpats %d qcuts %d qnodes by depth %s" % (stats.n_qnodes, stats.n_qpat_nodes, stats.n_qcut_nodes, " ".join([str(n) for n in stats.n_qdepth_nodes])))
         print()
         return engine_move, val, rpv
         
@@ -434,6 +448,7 @@ class Engine:
         # if there are no legal moves then this is checkmate or stalemate
         if not moves:
             if self.board.is_check():
+                stats.n_win_nodes += 1
                 return None, -CHECKMATE_VAL, []
             else:
                 stats.n_draw_nodes += 1
@@ -556,8 +571,8 @@ class Game:
                 print("Game over: %s (%s)" % (self.board.result(), reason))
 
                 print()
-                print("Moves: %s" % self.board.move_stack)
-                sys.exit()
+                print("Moves: %s" % move_list_to_sans(self.board.root(), self.board.move_stack))
+                return
             
             print("%s to move" % ["Black", "White"][int(self.board.turn)])
             print()
@@ -583,10 +598,10 @@ class Game:
             elif move_san == 'engine':
                 engine_move, val, pv, stats = self.engine.gen_move()
                 move_san = self.board.san(engine_move)
-                print("               ... klein skakie chooses move %s with eval %d centipawns using minimax (alphabeta) depth %d qdepth %d - PV is %s" % (move_san, val, MAX_DEPTH, MAX_QDEPTH, pv))
-                print()
-                print("nodes %d wins %d draws %d leaves %d pvs %d cuts %d alls %d nodes by depth: %s" % (stats.n_nodes, stats.n_win_nodes, stats.n_draw_nodes, stats.n_leaf_nodes, stats.n_pv_nodes, stats.n_cut_nodes, stats.n_all_nodes, " ".join([str(n) for n in stats.n_depth_nodes])))
-                print("qnodes %d qpats %d qcuts %d qnodes by depth %s" % (stats.n_qnodes, stats.n_qpat_nodes, stats.n_qcut_nodes, " ".join([str(n) for n in stats.n_qdepth_nodes])))
+                # print("               ... klein skakie chooses move %s with eval %d centipawns using minimax (alphabeta) depth %d qdepth %d - PV is %s" % (move_san, val, MAX_DEPTH, MAX_QDEPTH, pv))
+                # print()
+                # print("nodes %d wins %d draws %d leaves %d pvs %d cuts %d alls %d nodes by depth: %s" % (stats.n_nodes, stats.n_win_nodes, stats.n_draw_nodes, stats.n_leaf_nodes, stats.n_pv_nodes, stats.n_cut_nodes, stats.n_all_nodes, " ".join([str(n) for n in stats.n_depth_nodes])))
+                # print("qnodes %d qpats %d qcuts %d qnodes by depth %s" % (stats.n_qnodes, stats.n_qpat_nodes, stats.n_qcut_nodes, " ".join([str(n) for n in stats.n_qdepth_nodes])))
 
                 move = engine_move
 
@@ -609,3 +624,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # cProfile.run("main()")
+
