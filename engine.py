@@ -162,13 +162,17 @@ class Engine:
 
         orig_alpha = alpha
 
+        tt_move = None
+        if pos_fen4 in self.tt:
+            tt_move = self.tt[pos_fen4]
+        
         pv_move = None
         child_pv = []
         if pv:
             pv_move = pv[0]
 
         if DO_SEARCH_MOVE_SORT:
-            moves.sort(key=lambda move: search_move_sort_key(self.board, move, pv_move), reverse=True)
+            moves.sort(key=lambda move: search_move_sort_key(self.board, move, pv_move, tt_move), reverse=True)
 
         move_no = 0
         for move in moves:

@@ -2,7 +2,7 @@ import chess
 
 import evaluate
 
-DO_USE_ID_TT = False
+DO_USE_ID_TT = True
 DO_USE_ID_PV = True
 
 # Greatest victim least attacker, else 0
@@ -18,7 +18,8 @@ def qsearch_move_sort_key(board, move, is_check):
     return (captured_piece_type << 4) - attacker_piece_type
 
 SEARCH_MOVE_BASE = 1024*1024
-SEARCH_MOVE_PV_MOVE = 5 * SEARCH_MOVE_BASE
+SEARCH_MOVE_PV_MOVE = 6 * SEARCH_MOVE_BASE
+SEARCH_MOVE_TT_MOVE = 5 * SEARCH_MOVE_BASE
 SEARCH_MOVE_WINNING_CAPTURE_BASE = 4 * SEARCH_MOVE_BASE
 SEARCH_MOVE_EVEN_CAPTURE_BASE = 3 * SEARCH_MOVE_BASE
 SEARCH_MOVE_NON_LOSING_NON_CAPTURE_BASE = 2 * SEARCH_MOVE_BASE
