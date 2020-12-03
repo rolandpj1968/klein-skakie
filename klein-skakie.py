@@ -12,13 +12,13 @@ from engine import Engine
 import cProfile
 
 class Game:
-    def __init__(self, board = chess.Board()):
+    def __init__(self, board = chess.Board(), engine_time_allowed_s = 0):
         self.board = board
-        # TODO - separate engines for Black and White
         # TODO - docs reckon this only copies the base-board - what about previous moves?
-        self.engine = Engine(board.copy())
+        print("!!!!!!!!!!!!!!! engine time allowed is %.3fs" % engine_time_allowed_s)
+        self.engines = [Engine(board.copy(), engine_time_allowed_s), Engine(board.copy(), engine_time_allowed_s)]
 
-    def play(self, engine_time_allowed_s = 0):
+    def play(self):
         total_engine_time_s = 0
         print_board = True
         while True:
@@ -57,8 +57,9 @@ class Game:
             
             print("%s to move" % ["Black", "White"][self.board.turn])
             print()
-            val = self.engine.static_eval()
-            print("Static eval - positive is White advantage: %d" % val)
+            w_val = self.engines[chess.WHITE].static_eval()
+            b_val = self.engines[chess.BLACK].static_eval()
+            print("Static eval - positive is White advantage: white engine %d cp black engine %d cp" % (w_val, b_val))
             # qval = self.engine.quiesce_alphabeta(SearchStats(MAX_DEPTH, MAX_QDEPTH), 0, val)
             # print("Quiesced eval - positive is White advantage: %d" % qval)
             print()
@@ -78,13 +79,8 @@ class Game:
                 move = chess.Move.null()
 
             elif move_san == 'engine':
-                engine_time_left_s = engine_time_allowed_s - total_engine_time_s
-                start_time_s = time.time()
-                engine_move, val, pv, stats = self.engine.gen_move(engine_time_left_s)
-                end_time_s = time.time()
-                elapsed_time_s = end_time_s - start_time_s
-                total_engine_time_s += elapsed_time_s
-                print("                                                                 total engine time %.3fs of target %.3fs" % (total_engine_time_s, engine_time_allowed_s))
+                engine = self.engines[self.board.turn]
+                engine_move, val, pv, stats = engine.gen_move()
                 
                 move = engine_move
 
@@ -98,12 +94,13 @@ class Game:
                 move = self.board.parse_san(move_san)
                 
             self.board.push(move)
-            self.engine.make_move(move)
+            self.engines[chess.WHITE].make_move(move)
+            self.engines[chess.BLACK].make_move(move)
 
 def main():
     print("Hallo RPJ - let's play chess")
-    game = Game()
-    game.play(3*60)
+    game = Game(chess.Board(), 3*60)
+    game.play()
 
 if __name__ == "__main__":
     main()

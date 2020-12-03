@@ -30,9 +30,14 @@ class SearchStats:
         self.n_qdepth_nodes = [0] * (max_qdepth+1)
 
 class Engine:
-    def __init__(self, board = chess.Board()):
-        self.board = chess.Board()
+    def __init__(self, board = chess.Board(), engine_time_allowed_s = 0):
         # TODO - add position history from board
+        self.board = chess.Board()
+
+        # timing
+        self.engine_time_allowed_s = engine_time_allowed_s
+        self.total_engine_time_s = 0
+        
         self.fen4s = set()
         # increments on each gen_move() - used to clear out TT of old cruft
         self.tt_epoch = 0
@@ -67,7 +72,7 @@ class Engine:
             print("                                        qnodes %d qpats %d qcuts %d qnodes by depth %s" % (stats.n_qnodes, stats.n_qpat_nodes, stats.n_qcut_nodes, " ".join([str(n) for n in stats.n_qdepth_nodes])))
             id_elapsed_time_s = depth_end_time_s - id_start_time_s
             print("                                                               id time limit is %.3fs - elapsed time is %.3fs" % (time_limit_s, id_elapsed_time_s))
-            if time_limit_s != 0 and id_elapsed_time_s >= time_limit_s:
+            if time_limit_s > 0 and id_elapsed_time_s >= time_limit_s:
                 break
         print()
         return engine_move, val, rpv, stats
@@ -233,12 +238,19 @@ class Engine:
             
         return best_move, best_eval, best_rpv
             
-    def gen_move(self, remaining_time_s = 0):
+    def gen_move(self):
         self.tt_epoch += 1
         self.tt.clear()
-        time_limit_s = remaining_time_s/128
+        remaining_time_s = 0
+        if self.engine_time_allowed_s > 0:
+            remaining_time_s = self.engine_time_allowed_s - self.total_engine_time_s
+        gen_move_start_s = time.time()
+        time_limit_s = remaining_time_s/48
         engine_move, val, rpv, stats = self.iterative_deepening(time_limit_s)
-        print("                                                      tt size is %d" % len(self.tt))
+        gen_move_end_s = time.time()
+        gen_move_elapsed_time_s = gen_move_end_s - gen_move_start_s
+        self.total_engine_time_s += gen_move_elapsed_time_s
+        print("                                                   engine time so far %.3fs of %.3fs tt size is %d" % (self.total_engine_time_s, self.engine_time_allowed_s, len(self.tt)))
         pv = rpv[::-1]
         return engine_move, val, pv, stats
         
