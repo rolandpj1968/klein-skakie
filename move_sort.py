@@ -2,6 +2,7 @@ import chess
 
 import evaluate
 
+DO_USE_ID_TT = False
 DO_USE_ID_PV = True
 
 # Greatest victim least attacker, else 0
@@ -30,10 +31,13 @@ SEARCH_MOVE_LOSING_NON_CAPTURE_BASE = 0 * SEARCH_MOVE_BASE
 #   then losing captures, greatest victim least attacker
 #   then losing non-captures by least attacker
 # Break ties with piece-pos delta
-def search_move_sort_key(board, move, pv_move):
+def search_move_sort_key(board, move, pv_move, tt_move):
     if DO_USE_ID_PV and move == pv_move:
         return SEARCH_MOVE_PV_MOVE
 
+    if DO_USE_ID_TT and move == tt_move:
+        return SEARCH_MOVE_TT_MOVE
+    
     moving_piece_type = board.piece_type_at(move.from_square)
     is_capture = board.is_capture(move)
     is_target_attacked = board.is_attacked_by(not board.turn, move.to_square)
