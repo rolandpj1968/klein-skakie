@@ -1,155 +1,10 @@
 import sys
 import chess
 
+import evaluate
+
 import cProfile
 
-# From Sunfish
-PIECE_VALS = (
-    # BLACK
-    (
-        0, # nothing
-        -100, # PAWN
-        -280, # KNIGHT
-        -320, # BISHOP
-        -479, # ROOK
-        -929, # QUEEN
-        0, # KING
-    ),
-    (
-        0, # nothing
-        100, # PAWN
-        280, # KNIGHT
-        320, # BISHOP
-        479, # ROOK
-        929, # QUEEN
-        0, # KING
-    )
-)
-
-PIECE_POS_VALS = (
-    # BLACK
-    (
-        # nothing
-        (),
-        # PAWN
-        (   0,   0,   0,   0,   0,   0,   0,   0,
-          -78, -83, -86, -73,-102, -82, -85, -90,
-           -7, -29, -21, -44, -40, -31, -44,  -7,
-           17, -16,   2, -15, -14,   0, -15,  13,
-           26,  -3, -10,  -9,  -6,  -1,   0,  23,
-           22,  -9,  -5,  11,  10,   2,  -3,  19,
-           31,  -8,   7,  37,  36,  14,  -3,  31,
-            0,   0,   0,   0,   0,   0,   0,   0),
-        # KNIGHT
-        (  66,  53,  75,  75,  10,  55,  58,  70,
-            3,   6,-100,  36,  -4, -62,   4,  14,
-          -10, -67,  -1, -74, -73, -27, -62,   2,
-          -24, -24, -45, -37, -33, -41, -25, -17,
-            1,  -5, -31, -21, -22, -35,  -2,   0,
-           18, -10, -13, -22, -18, -15, -11,  14,
-           23,  15,  -2,   0,  -2,   0,  23,  20,
-           74,  23,  26,  24,  19,  35,  22,  69),
-        # BISHOP
-        (  59,  78,  82,  76,  23, 107,  37,  50,
-           11, -20, -35,  42,  39, -31,  -2,  22,
-            9, -39,  32, -41, -52,  10, -28,  14,
-          -25, -17, -20, -34, -26, -25, -15, -10,
-          -13, -10, -17, -23, -17, -16,   0,  -7,
-          -14, -25, -24, -15,  -8, -25, -20, -15,
-          -19, -20, -11,  -6,  -7,  -6, -20, -16,
-            7,  -2,  15,  12,  14,  15,  10,  10),
-        # ROOK
-        ( -35, -29, -33,  -4, -37, -33, -56, -50,
-          -55, -29, -56, -67, -55, -62, -34, -60,
-          -19, -35, -28, -33, -45, -27, -25, -15,
-            0,  -5, -16, -13, -18,   4,   9,   6,
-           28,  35,  16,  21,  13,  29,  46,  30,
-           42,  28,  42,  25,  25,  35,  26,  46,
-           53,  38,  31,  26,  29,  43,  44,  53,
-           30,  24,  18,  -5,   2,  18,  31,  32),
-        # QUEEN
-        (  -6,  -1,   8, 104, -69, -24, -88, -26,
-          -14, -32, -60,  10, -20, -76, -57, -24,
-            2, -43, -32, -60, -72, -63, -43,  -2,
-           -1,  16, -22, -17, -25, -20,  13,   6,
-           14,  15,   2,   5,   1,  10,  20,  22,
-           30,   6,  13,  11,  16,  11,  16,  27,
-           36,  18,   0,  19,  15,  15,  21,  38,
-           39,  30,  31,  13,  31,  36,  34,  42),
-        # KING
-        (  -4, -54, -47,  99,  99, -60, -83,  62,
-           32, -10, -55, -56, -56, -55, -10,  -3,
-           62, -12,  57, -44,  67, -28, -37,  31,
-           55, -50, -11,   4,  19, -13,   0,  49,
-           55,  43,  52,  28,  51,  47,   8,  50,
-           47,  42,  43,  79,  64,  32,  29,  32,
-            4,  -3,  14,  50,  57,  18, -13,  -4,
-          -17, -30,   3,  14,  -6,   1, -40, -18),
-    ),
-    # WHITE
-    (
-        # nothing
-        (),
-        # PAWN
-        (   0,   0,   0,   0,   0,   0,   0,   0,
-          -31,   8,  -7, -37, -36, -14,   3, -31,
-          -22,   9,   5, -11, -10,  -2,   3, -19,
-          -26,   3,  10,   9,   6,   1,   0, -23,
-          -17,  16,  -2,  15,  14,   0,  15, -13,
-            7,  29,  21,  44,  40,  31,  44,   7,
-           78,  83,  86,  73, 102,  82,  85,  90,
-            0,   0,   0,   0,   0,   0,   0,   0),
-        # KNIGHT
-        ( -74, -23, -26, -24, -19, -35, -22, -69,
-          -23, -15,   2,   0,   2,   0, -23, -20,
-          -18,  10,  13,  22,  18,  15,  11, -14,
-           -1,   5,  31,  21,  22,  35,   2,   0,
-           24,  24,  45,  37,  33,  41,  25,  17,
-           10,  67,   1,  74,  73,  27,  62,  -2,
-           -3,  -6, 100, -36,   4,  62,  -4, -14,
-          -66, -53, -75, -75, -10, -55, -58, -70),
-        # BISHOP
-        (  -7,   2, -15, -12, -14, -15, -10, -10,
-           19,  20,  11,   6,   7,   6,  20,  16,
-           14,  25,  24,  15,   8,  25,  20,  15,
-           13,  10,  17,  23,  17,  16,   0,   7,
-           25,  17,  20,  34,  26,  25,  15,  10,
-           -9,  39, -32,  41,  52, -10,  28, -14,
-          -11,  20,  35, -42, -39,  31,   2, -22,
-          -59, -78, -82, -76, -23,-107, -37, -50),
-        # ROOK
-        ( -30, -24, -18,   5,  -2, -18, -31, -32,
-          -53, -38, -31, -26, -29, -43, -44, -53,
-          -42, -28, -42, -25, -25, -35, -26, -46,
-          -28, -35, -16, -21, -13, -29, -46, -30,
-            0,   5,  16,  13,  18,  -4,  -9,  -6,
-           19,  35,  28,  33,  45,  27,  25,  15,
-           55,  29,  56,  67,  55,  62,  34,  60,
-           35,  29,  33,   4,  37,  33,  56,  50),
-        # QUEEN
-        ( -39, -30, -31, -13, -31, -36, -34, -42,
-          -36, -18,   0, -19, -15, -15, -21, -38,
-          -30,  -6, -13, -11, -16, -11, -16, -27,
-          -14, -15,  -2,  -5,  -1, -10, -20, -22,
-            1, -16,  22,  17,  25,  20, -13,  -6,
-           -2,  43,  32,  60,  72,  63,  43,   2,
-           14,  32,  60, -10,  20,  76,  57,  24,
-            6,   1,  -8,-104,  69,  24,  88,  26),
-        # KING
-        (  17,  30,  -3, -14,   6,  -1,  40,  18,
-           -4,   3, -14, -50, -57, -18,  13,   4,
-          -47, -42, -43, -79, -64, -32, -29, -32,
-          -55, -43, -52, -28, -51, -47,  -8, -50,
-          -55,  50,  11,  -4, -19,  13,   0, -49,
-          -62,  12, -57,  44, -67,  28,  37, -31,
-          -32,  10,  55,  56,  56,  55,  10,   3,
-            4,  54,  47, -99, -99,  60,  83, -62),
-    )
-)
-
-INFINITY_VAL = 1000000
-CHECKMATE_VAL = 20000
-DRAW_VAL = 0
 
 MAX_DEPTH = 4
 # I believe MAX_QDEPTH should be even in order to be conservative - i.e. always allow the opponent to make the last capture
@@ -210,8 +65,8 @@ def search_move_sort_key(board, move, pv_move):
     is_capture = board.is_capture(move)
     is_target_attacked = board.is_attacked_by(not board.turn, move.to_square)
 
-    moving_piece_val = PIECE_VALS[chess.WHITE][moving_piece_type]
-    moving_piece_pp = PIECE_POS_VALS[board.turn][moving_piece_type]
+    moving_piece_val = evaluate.PIECE_VALS[chess.WHITE][moving_piece_type]
+    moving_piece_pp = evaluate.PIECE_POS_VALS[board.turn][moving_piece_type]
     pp_delta = (moving_piece_pp[move.to_square] - moving_piece_pp[move.from_square]) * [-1, 1][board.turn]
 
     if is_capture:
@@ -219,7 +74,7 @@ def search_move_sort_key(board, move, pv_move):
         if board.is_en_passant(move):
             captured_piece_type = chess.PAWN
 
-        captured_piece_val = PIECE_VALS[chess.WHITE][captured_piece_type]
+        captured_piece_val = evaluate.PIECE_VALS[chess.WHITE][captured_piece_type]
         
         gvla = (captured_piece_val << 10) - moving_piece_val
         if is_target_attacked:
@@ -277,27 +132,14 @@ class Engine:
         self.fen4s.add(fen4(self.board))
 
     def static_eval(self):
-        val = 0
-        for color in [chess.BLACK, chess.WHITE]:
-            color_piece_vals = PIECE_VALS[color]
-            color_piece_pos_vals = PIECE_POS_VALS[color]
-            for piece_type in [chess.PAWN,  chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING]:
-                sqSet = self.board.pieces(piece_type, color)
-                if sqSet != 0:
-                    piece_val = color_piece_vals[piece_type]
-                    piece_pos_vals = color_piece_pos_vals[piece_type]
-                    while sqSet != 0:
-                        sq = sqSet.pop()
-                        val += piece_val
-                        val += piece_pos_vals[sq]
-        return val
+        return evaluate.static_eval(self.board)
 
     def iterative_deepening(self, stats):
         pv = []
         for depth_to_go in [n+1 for n in range(MAX_DEPTH)]:
             stats = SearchStats(depth_to_go, MAX_QDEPTH)
             # engine_move, val, rpv = self.minimax(stats, 0, MAX_DEPTH)
-            engine_move, val, rpv = self.alphabeta(stats, pv, 0, depth_to_go, -INFINITY_VAL, INFINITY_VAL)
+            engine_move, val, rpv = self.alphabeta(stats, pv, 0, depth_to_go)
             pv = rpv[::-1]
             move_san = self.board.san(engine_move)
             print("    depth %d %s eval %d cp %s" % (depth_to_go, move_san, val, move_list_to_sans(self.board, pv)))
@@ -321,7 +163,7 @@ class Engine:
                 captured_piece_type = self.board.piece_type_at(move.to_square)
                 if self.board.is_en_passant(move):
                     captured_piece_type = chess.PAWN
-                static_move_val = val + PIECE_VALS[chess.WHITE][captured_piece_type]
+                static_move_val = val + evaluate.PIECE_VALS[chess.WHITE][captured_piece_type]
 
                 # TODO take-back at leaf
                 move_eval = static_move_val
@@ -383,7 +225,7 @@ class Engine:
         return best_move, best_eval, best_rpv
 
     # return 
-    def quiesce_alphabeta(self, stats, depth_from_qroot, val, alpha, beta):
+    def quiesce_alphabeta(self, stats, depth_from_qroot, val, alpha = -evaluate.INFINITY_VAL, beta = evaluate.INFINITY_VAL):
 
         stats.n_qnodes += 1
         stats.n_qdepth_nodes[depth_from_qroot] += 1
@@ -426,7 +268,7 @@ class Engine:
                 captured_piece_type = self.board.piece_type_at(move.to_square)
                 if self.board.is_en_passant(move):
                     captured_piece_type = chess.PAWN
-                static_move_val = val + PIECE_VALS[chess.WHITE][captured_piece_type]
+                static_move_val = val + evaluate.PIECE_VALS[chess.WHITE][captured_piece_type]
 
             # TODO take-backs at leaf
             move_eval = static_move_val
@@ -450,7 +292,7 @@ class Engine:
                     
         return best_eval
 
-    def alphabeta(self, stats, pv, depth_from_root, depth_to_go, alpha, beta):
+    def alphabeta(self, stats, pv, depth_from_root, depth_to_go, alpha = -evaluate.INFINITY_VAL, beta = evaluate.INFINITY_VAL):
         stats.n_nodes += 1
         stats.n_depth_nodes[depth_from_root] += 1
 
@@ -482,7 +324,7 @@ class Engine:
             self.fen4s.add(pos_fen4)
 
         best_move = None
-        best_eval = -INFINITY_VAL
+        best_eval = -evaluate.INFINITY_VAL
         best_rpv = []
 
         orig_alpha = alpha
@@ -538,7 +380,7 @@ class Engine:
         stats = SearchStats(MAX_DEPTH, MAX_QDEPTH)
         # engine_move, val, rpv = self.minimax(stats, 0, MAX_DEPTH)
         engine_move, val, rpv = self.iterative_deepening(stats)
-        # engine_move, val, rpv = self.alphabeta(stats, [], 0, MAX_DEPTH, -INFINITY_VAL, INFINITY_VAL)
+        # engine_move, val, rpv = self.alphabeta(stats, [], 0, MAX_DEPTH)
         pv = rpv[::-1]
         return engine_move, val, pv, stats
         
