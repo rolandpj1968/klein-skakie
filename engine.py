@@ -6,7 +6,7 @@ import evaluate
 from util import fen4, move_list_to_sans
 from move_sort import qsearch_move_sort_key, search_move_sort_key
 
-MAX_DEPTH = 4
+MAX_DEPTH = 5
 # I believe MAX_QDEPTH should be even in order to be conservative - i.e. always allow the opponent to make the last capture
 MAX_QDEPTH = 24
 
@@ -64,7 +64,8 @@ class Engine:
         for depth_to_go in [n+1 for n in range(max_depth)]:
             stats = SearchStats(depth_to_go, MAX_QDEPTH)
             depth_start_time_s = time.time()
-            engine_move, val, rpv = self.alphabeta(stats, pv, 0, depth_to_go)
+            # engine_move, val, rpv = self.alphabeta(stats, pv, 0, depth_to_go)
+            engine_move, val, rpv = self.principal_variation_search(stats, pv, 0, depth_to_go)
             depth_end_time_s = time.time()
             depth_elapsed_time_s = depth_end_time_s - depth_start_time_s
             pv = rpv[::-1]
@@ -206,6 +207,114 @@ class Engine:
                 
             self.board.push(move)
             child_best_move, child_eval, child_rpv = self.alphabeta(stats, child_pv, depth_from_root+1, depth_to_go-1, -beta, -alpha)
+            self.board.pop()
+
+            move_eval = -child_eval
+
+            if best_eval < move_eval:
+                best_move = move
+                best_eval = move_eval
+                
+                if beta <= move_eval:
+                    break
+                
+                child_rpv.append(move)
+                best_rpv = child_rpv
+
+            if alpha < move_eval:
+                alpha = move_eval
+
+            move_no += 1
+        
+        if depth_from_root != 0:
+            self.fen4s.remove(pos_fen4)
+
+        if beta <= best_eval:
+            stats.n_cut_nodes += 1
+            stats.n_depth_cut_nodes[depth_from_root] += 1
+            stats.n_depth_cut_siblings[depth_from_root] += move_no + 1
+        elif orig_alpha < best_eval:
+            stats.n_pv_nodes += 1
+        else:
+            stats.n_all_nodes += 1
+
+        # Add move to TT if it's not an all node
+        if orig_alpha < best_eval and move_no != 0:
+            self.tt[pos_fen4] = best_move
+            
+        return best_move, best_eval, best_rpv
+            
+    def principal_variation_search(self, stats, pv, depth_from_root, depth_to_go, alpha = -evaluate.INFINITY_VAL, beta = evaluate.INFINITY_VAL):
+        stats.n_nodes += 1
+        stats.n_depth_nodes[depth_from_root] += 1
+
+        moves = list(self.board.legal_moves)
+        
+        # if there are no legal moves then this is checkmate or stalemate
+        if not moves:
+            if self.board.is_check():
+                stats.n_win_nodes += 1
+                return None, -evaluate.CHECKMATE_VAL, []
+            else:
+                stats.n_draw_nodes += 1
+                return None, evaluate.DRAW_VAL, []
+        
+        pos_fen4 = fen4(self.board)
+        
+        if depth_from_root != 0 and pos_fen4 in self.fen4s:
+            # TODO draw-rep nodes
+            stats.n_draw_nodes += 1
+            return None, evaluate.DRAW_VAL, []
+
+        if depth_to_go == 0:
+            stats.n_leaf_nodes += 1
+            val = self.static_eval() * [-1, 1][self.board.turn]
+            qval = self.quiesce_alphabeta(stats, 0, val, alpha, beta)
+            return None, qval, []
+
+        if depth_from_root != 0:
+            self.fen4s.add(pos_fen4)
+
+        best_move = None
+        best_eval = -evaluate.INFINITY_VAL
+        best_rpv = []
+
+        orig_alpha = alpha
+
+        tt_move = None
+        if pos_fen4 in self.tt:
+            tt_move = self.tt[pos_fen4]
+        
+        pv_move = None
+        child_pv = []
+        if pv:
+            pv_move = pv[0]
+
+        if DO_SEARCH_MOVE_SORT:
+            moves.sort(key=lambda move: search_move_sort_key(self.board, move, pv_move, tt_move), reverse=True)
+
+        move_no = 0
+        for move in moves:
+            if move == pv_move:
+                child_pv = pv[1:]
+            else:
+                child_pv = []
+                
+            self.board.push(move)
+
+            skip_nws = move_no == 0 or depth_to_go <= 2
+            if skip_nws:
+                probe_eval = alpha + 1
+            else:
+                # Null window search to see if this will raise alpha
+                child_best_move, child_eval, child_rpv = self.principal_variation_search(stats, child_pv, depth_from_root+1, depth_to_go-1, -(alpha+1), -alpha)
+                probe_eval = -child_eval
+
+            if skip_nws or (alpha < probe_eval and probe_eval < beta):
+                # Full window search - raise alpha since we can and our search is currently stable
+                alpha = probe_eval - 1
+                child_best_move, child_eval, child_rpv = self.principal_variation_search(stats, child_pv, depth_from_root+1, depth_to_go-1, -beta, -alpha)
+                
             self.board.pop()
 
             move_eval = -child_eval

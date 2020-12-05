@@ -99,7 +99,8 @@ class Game:
 
 def main():
     print("Hallo RPJ - let's play chess")
-    game = Game(chess.Board(), 3*60)
+    # game = Game(chess.Board(), 3*60)
+    game = Game(chess.Board())
     game.play()
 
 if __name__ == "__main__":
