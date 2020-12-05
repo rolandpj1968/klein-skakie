@@ -23,6 +23,8 @@ class SearchStats:
         self.n_cut_nodes = 0
         self.n_all_nodes = 0
         self.n_depth_nodes = [0] * (max_depth+1)
+        self.n_depth_cut_nodes = [0] * (max_depth+1)
+        self.n_depth_cut_siblings = [0] * (max_depth+1)
 
         self.n_qnodes = 0
         self.n_qpat_nodes = 0
@@ -69,6 +71,7 @@ class Engine:
             move_san = self.board.san(engine_move)
             print("    depth %d %.3fs %s eval %d cp %s" % (depth_to_go, depth_elapsed_time_s, move_san, val, move_list_to_sans(self.board, pv)))
             print("                                        nodes %d wins %d draws %d leaves %d pvs %d cuts %d alls %d nodes by depth: %s" % (stats.n_nodes, stats.n_win_nodes, stats.n_draw_nodes, stats.n_leaf_nodes, stats.n_pv_nodes, stats.n_cut_nodes, stats.n_all_nodes, " ".join([str(n) for n in stats.n_depth_nodes])))
+            print("                                        cut nodes nodes by depth: %s" % (" ".join(["%d/%d" % (stats.n_depth_cut_nodes[i], stats.n_depth_cut_siblings[i]) for i in range(len(stats.n_depth_cut_nodes))])))
             print("                                        qnodes %d qpats %d qcuts %d qnodes by depth %s" % (stats.n_qnodes, stats.n_qpat_nodes, stats.n_qcut_nodes, " ".join([str(n) for n in stats.n_qdepth_nodes])))
             id_elapsed_time_s = depth_end_time_s - id_start_time_s
             print("                                                               id time limit is %.3fs - elapsed time is %.3fs" % (time_limit_s, id_elapsed_time_s))
@@ -227,6 +230,8 @@ class Engine:
 
         if beta <= best_eval:
             stats.n_cut_nodes += 1
+            stats.n_depth_cut_nodes[depth_from_root] += 1
+            stats.n_depth_cut_siblings[depth_from_root] += move_no + 1
         elif orig_alpha < best_eval:
             stats.n_pv_nodes += 1
         else:
