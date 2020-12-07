@@ -4,10 +4,11 @@ import chess
 import evaluate
 
 from util import fen4, move_list_to_sans
-from move_sort import qsearch_move_sort_key, search_move_sort_key
+from move_sort import search_move_sort_key
 
 MAX_DEPTH = 5
 # I believe MAX_QDEPTH should be even in order to be conservative - i.e. always allow the opponent to make the last capture
+# With move ordering q-search does not explode, so this could be infinity...
 MAX_QDEPTH = 24
 
 DO_SEARCH_MOVE_SORT = True
@@ -87,10 +88,18 @@ class Engine:
         stats.n_qnodes += 1
         stats.n_qdepth_nodes[depth_from_qroot] += 1
 
-        # Stand pat - fail hard
-        if beta <= val:
-            stats.n_qpat_nodes += 1
-            return beta
+        # If in check then stand pat is invalid and we consider all moves; not just captures/promos
+        is_check = self.board.is_check()
+
+        if not is_check:
+            # Stand pat - fail hard
+            if beta <= val:
+                stats.n_qpat_nodes += 1
+                return beta
+
+            # Raise alpha to static eval cos we don't have to capture here
+            if alpha < val:
+                alpha = val
         
         if depth_from_qroot >= MAX_QDEPTH:
             return val
@@ -98,7 +107,6 @@ class Engine:
         best_eval = val
 
         moves = list(self.board.legal_moves)
-        is_check = self.board.is_check()
         
         # if there are no legal moves then this is checkmate or stalemate
         if not moves:
@@ -111,21 +119,28 @@ class Engine:
             # evaluate all moves when in check
             qmoves = moves
         else:
-            # ... otherwise just captures
-            qmoves = [move for move in moves if self.board.is_capture(move)]
+            # ... otherwise just captures and promotions
+            qmoves = [move for move in moves if self.board.is_capture(move) or move.promotion != None]
         
         if DO_QSEARCH_MOVE_SORT:
-            qmoves.sort(key=lambda move: qsearch_move_sort_key(self.board, move, is_check), reverse=True)
+            qmoves.sort(key=lambda move: search_move_sort_key(self.board, move), reverse=True)
                 
         for move in qmoves:
+
+            promo_piece_val = 0
+            if move.promotion != None:
+                # replace a pawn with the promo piece
+                promo_piece_val = evaluate.PIECE_VALS[chess.WHITE][move.promotion] - evaluate.PIECE_VALS[chess.WHITE][chess.PAWN]
             
-            if is_check and not self.board.is_capture(move):
-                static_move_val = val
-            else:
+            if self.board.is_capture(move):
                 captured_piece_type = self.board.piece_type_at(move.to_square)
                 if self.board.is_en_passant(move):
                     captured_piece_type = chess.PAWN
                 static_move_val = val + evaluate.PIECE_VALS[chess.WHITE][captured_piece_type]
+            else:
+                static_move_val = val
+
+            static_move_val += promo_piece_val
 
             # TODO take-backs at leaf
             move_eval = static_move_val

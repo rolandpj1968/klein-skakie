@@ -5,18 +5,6 @@ import evaluate
 DO_USE_ID_TT = True
 DO_USE_ID_PV = True
 
-# Greatest victim least attacker, else 0
-def qsearch_move_sort_key(board, move, is_check):
-    if is_check and not board.is_capture(move):
-        return 0
-    
-    captured_piece_type = board.piece_type_at(move.to_square)
-    if board.is_en_passant(move):
-        captured_piece_type = chess.PAWN
-    attacker_piece_type = board.piece_type_at(move.from_square)
-
-    return (captured_piece_type << 4) - attacker_piece_type
-
 SEARCH_MOVE_BASE = 1024*1024
 SEARCH_MOVE_PV_MOVE = 6 * SEARCH_MOVE_BASE
 SEARCH_MOVE_TT_MOVE = 5 * SEARCH_MOVE_BASE
@@ -32,7 +20,8 @@ SEARCH_MOVE_LOSING_NON_CAPTURE_BASE = 0 * SEARCH_MOVE_BASE
 #   then losing captures, greatest victim least attacker
 #   then losing non-captures by least attacker
 # Break ties with piece-pos delta
-def search_move_sort_key(board, move, pv_move, tt_move):
+# Promotion piece provides an extra bonus for non-attacked targets
+def search_move_sort_key(board, move, pv_move=None, tt_move=None):
     if DO_USE_ID_PV and move == pv_move:
         return SEARCH_MOVE_PV_MOVE
 
@@ -46,6 +35,10 @@ def search_move_sort_key(board, move, pv_move, tt_move):
     moving_piece_val = evaluate.PIECE_VALS[chess.WHITE][moving_piece_type]
     moving_piece_pp = evaluate.PIECE_POS_VALS[board.turn][moving_piece_type]
     pp_delta = (moving_piece_pp[move.to_square] - moving_piece_pp[move.from_square]) * [-1, 1][board.turn]
+
+    promotion_piece_bonus_val = 0
+    if move.promotion != None and not is_target_attacked:
+        promotion_piece_bonus_val = evaluate.PIECE_VALS[chess.WHITE][move.promotion]
 
     if is_capture:
         captured_piece_type = board.piece_type_at(move.to_square)
@@ -70,7 +63,7 @@ def search_move_sort_key(board, move, pv_move, tt_move):
 
         else:
             # Winning captured #2 - clean capture 
-            return SEARCH_MOVE_WINNING_CAPTURE_BASE + gvla + pp_delta
+            return SEARCH_MOVE_WINNING_CAPTURE_BASE + gvla + pp_delta + promotion_piece_bonus_val
 
     else:
         # non-capture
@@ -79,6 +72,6 @@ def search_move_sort_key(board, move, pv_move, tt_move):
         if is_target_attacked:
             return SEARCH_MOVE_LOSING_NON_CAPTURE_BASE - moving_piece_val + pp_delta
         else:
-            return SEARCH_MOVE_NON_LOSING_NON_CAPTURE_BASE + pp_delta
+            return SEARCH_MOVE_NON_LOSING_NON_CAPTURE_BASE + pp_delta + promotion_piece_bonus_val
 
     
