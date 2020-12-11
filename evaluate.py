@@ -148,6 +148,10 @@ INFINITY_VAL = 1000000
 CHECKMATE_VAL = 20000
 DRAW_VAL = 0
 
+Q_INFINITY_VAL = 2*INFINITY_VAL
+Q_CHECKMATE_VAL_DELTA = 10000
+Q_STALEMATE_VAL_DELTA = 0
+
 def static_eval(board):
     val = 0
     for color in [chess.BLACK, chess.WHITE]:
