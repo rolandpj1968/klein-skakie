@@ -100,12 +100,12 @@ class Game:
 def main():
     print("Hallo RPJ - let's play chess")
     # game = Game(chess.Board(), 3*60)
-    # game = Game(chess.Board())
+    game = Game(chess.Board())
     # game = Game(chess.Board("2r1r1k1/2bn4/R1p1p3/2P2p1p/1P3P2/3B2PP/8/2BR2K1 w - - 1 32"))
-    game = Game(chess.Board("r1bqk2r/ppp2ppp/2nbpn2/3p4/3P4/2N1PN2/PPP1BPPP/R1BQK2R w KQkq - 2 6"))
+    # game = Game(chess.Board("r1bqk2r/ppp2ppp/2nbpn2/3p4/3P4/2N1PN2/PPP1BPPP/R1BQK2R w KQkq - 2 6"))
     game.play()
 
 if __name__ == "__main__":
-    main()
-    # cProfile.run("main()")
+    # main()
+    cProfile.run("main()")
 

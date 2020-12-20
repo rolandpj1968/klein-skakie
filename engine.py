@@ -16,7 +16,7 @@ MAX_QDEPTH = 24
 DO_SEARCH_MOVE_SORT = True
 DO_QSEARCH_MOVE_SORT = True
 
-USE_QTT = True
+USE_QTT = False
 
 class SearchStats:
     def __init__(self, max_depth, max_qdepth):
@@ -79,8 +79,8 @@ class Engine:
         for depth_to_go in [n+1 for n in range(max_depth)]:
             stats = SearchStats(depth_to_go, MAX_QDEPTH)
             depth_start_time_s = time.time()
-            engine_move, val, rpv = self.alphabeta(stats, pv, 0, depth_to_go)
-            # engine_move, val, rpv = self.principal_variation_search(stats, pv, 0, depth_to_go)
+            # engine_move, val, rpv = self.alphabeta(stats, pv, 0, depth_to_go)
+            engine_move, val, rpv = self.principal_variation_search(stats, pv, 0, depth_to_go)
             depth_end_time_s = time.time()
             depth_elapsed_time_s = depth_end_time_s - depth_start_time_s
             pv = rpv[::-1]
@@ -128,38 +128,38 @@ class Engine:
             # print("                        %s %s val %d alpha %d beta %d check %s MAX DEPTH return %d" % ("  " * depth_from_qroot, self.board.fen(), val, orig_alpha, beta, str(is_check), val))
             return val
 
-        if pos_fen4 == None:
-            pos_fen4 = fen4(self.board)
-            
-        if pos_fen4 in self.qtt:
-            stats.n_qtt_hits += 1
-            qtt_entry = self.qtt[pos_fen4]
-            # print("qtt (%d, %d) " % (qtt_entry.lb, qtt_entry.ub), end='')
-        else:
-            qtt_entry = tt.TTEntry()
-            self.qtt[pos_fen4] = qtt_entry
-
-        qtt_best_eval = None
-        qtt_best_move = None
-        
         if USE_QTT:
+            if pos_fen4 == None:
+                pos_fen4 = fen4(self.board)
+            
+            if pos_fen4 in self.qtt:
+                stats.n_qtt_hits += 1
+                qtt_entry = self.qtt[pos_fen4]
+                # print("qtt (%d, %d) " % (qtt_entry.lb, qtt_entry.ub), end='')
+            else:
+                qtt_entry = tt.TTEntry()
+                self.qtt[pos_fen4] = qtt_entry
+
+                # qtt_best_eval = None
+                # qtt_best_move = None
+        
             qtt_lb = qtt_entry.lb_delta + val
             qtt_ub = qtt_entry.ub_delta + val
             if qtt_ub <= orig_alpha:
                 stats.n_qtt_ub_hits += 1
-                qtt_best_eval = qtt_ub
+                # qtt_best_eval = qtt_ub
                 # print("                        %s %s val %d alpha %d beta %d check %s  ub return %d" % ("  " * depth_from_qroot, self.board.fen(), val, orig_alpha, beta, str(is_check), qtt_ub))
                 return qtt_ub
 
             elif beta <= qtt_lb:
                 stats.n_qtt_lb_hits += 1
-                qtt_best_eval = qtt_lb
+                # qtt_best_eval = qtt_lb
                 # print("                        %s %s val %d alpha %d beta %d check %s  lb return %d" % ("  " * depth_from_qroot, self.board.fen(), val, orig_alpha, beta, str(is_check), qtt_lb))
                 return qtt_lb
 
             elif qtt_lb == qtt_ub:
                 stats.n_qtt_exact_hits += 1
-                qtt_best_eval = qtt_lb
+                # qtt_best_eval = qtt_lb
                 # print("                        %s %s val %d alpha %d beta %d check %s  exact return %d" % ("  " * depth_from_qroot, self.board.fen(), val, orig_alpha, beta, str(is_check), qtt_lb))
                 return qtt_lb
             
@@ -175,8 +175,9 @@ class Engine:
                 # relative to (static) val for QTT consistency - we really want 0 here but doesn't work with QTT and should be an edge case
                 best_eval = val + evaluate.DRAW_VAL
 
-            qtt_entry.lb_delta = best_eval - val
-            qtt_entry.ub_delta = best_eval - val
+            if USE_QTT:
+                qtt_entry.lb_delta = best_eval - val
+                qtt_entry.ub_delta = best_eval - val
 
             # print("                        %s %s val %d alpha %d beta %d check %s c/smate return %d" % ("  " * depth_from_qroot, self.board.fen(), val, orig_alpha, beta, str(is_check), best_eval))
             return best_eval
@@ -243,28 +244,29 @@ class Engine:
         #     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! bingo bongo bango !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         #     print("board fen %s qt-entry (%d, %d, %s) -> qtt_best_eval %d orig_alpha %d beta %d val %d alpha %d best_eval %d best_move %s move_no %d qmoves %s" % (pos_fen4, qtt_entry.lb, qtt_entry.ub, str(qtt_entry.move), qtt_best_eval, orig_alpha, beta, val, alpha, best_eval, str(best_move), move_no, str(qmoves)))
 
-        best_eval_delta = best_eval - val
-        if best_eval <= orig_alpha:
-            # All-node: we don't get a good idea of the best move
-            node_type = "all"
-            if best_eval_delta < qtt_entry.ub_delta:
-                qtt_entry.ub_delta = best_eval_delta
-
-        else:
-            if beta <= best_eval:
-                # Cut node
-                node_type = "cut"
-                stats.n_qcut_nodes += 1
-                if qtt_entry.lb_delta < best_eval_delta:
-                    qtt_entry.move = best_move
-                    qtt_entry.lb_delta = best_eval_delta
+        if USE_QTT:
+            best_eval_delta = best_eval - val
+            if best_eval <= orig_alpha:
+                # All-node: we don't get a good idea of the best move
+                node_type = "all"
+                if best_eval_delta < qtt_entry.ub_delta:
+                    qtt_entry.ub_delta = best_eval_delta
 
             else:
-                # Pv-node - this is an exact value
-                node_type = "pv"
-                qtt_entry.lb_delta = best_eval_delta
-                qtt_entry.ub_delta = best_eval_delta
-                qtt_entry.move = best_move
+                if beta <= best_eval:
+                    # Cut node
+                    node_type = "cut"
+                    stats.n_qcut_nodes += 1
+                    if qtt_entry.lb_delta < best_eval_delta:
+                        qtt_entry.move = best_move
+                        qtt_entry.lb_delta = best_eval_delta
+
+                else:
+                    # Pv-node - this is an exact value
+                    node_type = "pv"
+                    qtt_entry.lb_delta = best_eval_delta
+                    qtt_entry.ub_delta = best_eval_delta
+                    qtt_entry.move = best_move
 
         # print("                        %s %s val %d alpha %d beta %d check %s %s return %d" % ("  " * depth_from_qroot, self.board.fen(), val, orig_alpha, beta, str(is_check), node_type, best_eval))
         return best_eval
