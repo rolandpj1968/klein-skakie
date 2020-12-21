@@ -8,15 +8,35 @@ import tt
 from util import fen4, move_list_to_sans
 from move_sort import search_move_sort_key
 
-MAX_DEPTH = 5
+# Engine config
+
+# 0 means used fixed depth at MAX_DEPTH
+DEFAULT_GAME_TIME_LIMIT_S = 0
+GAME_TIME_LIMIT_S_KEY = "time-limit-s"
+
+DEFAULT_MAX_DEPTH = 3
+MAX_DEPTH_KEY = "max-depth"
+
 # I believe MAX_QDEPTH should be even in order to be conservative - i.e. always allow the opponent to make the last capture
 # With move ordering q-search does not explode, so this could be infinity...
-MAX_QDEPTH = 24
+DEFAULT_MAX_QDEPTH = 24
+MAX_QDEPTH_KEY = "max-qdepth"
 
-DO_SEARCH_MOVE_SORT = True
-DO_QSEARCH_MOVE_SORT = True
+DEFAULT_DO_SEARCH_MOVE_SORT = True
+DO_SEARCH_MOVE_SORT_KEY = "do-search-move-sort"
 
-USE_QTT = False
+DEFAULT_DO_QSEARCH_MOVE_SORT = True
+DO_QSEARCH_MOVE_SORT_KEY = "do-qsearch-move-sort"
+
+# True iff we maintain and use a transition-table for quiescence search
+DEFAULT_USE_QTT = False
+USE_QTT_KEY = "use-qtt"
+
+def config_val(config, key, default):
+    val = default
+    if key in config:
+        val = config[key]
+    return val
 
 class SearchStats:
     def __init__(self, max_depth, max_qdepth):
@@ -42,12 +62,20 @@ class SearchStats:
         self.n_qtt_exact_hits = 0
 
 class Engine:
-    def __init__(self, board = chess.Board(), engine_time_allowed_s = 0):
+    
+    def __init__(self, board = chess.Board(), config = {}):
         # TODO - add position history from board
         self.board = board
 
+        # engine config
+        self.GAME_TIME_LIMIT_S = config_val(config, GAME_TIME_LIMIT_S_KEY, DEFAULT_GAME_TIME_LIMIT_S)
+        self.MAX_DEPTH = config_val(config, MAX_DEPTH_KEY, DEFAULT_MAX_DEPTH)
+        self.MAX_QDEPTH = config_val(config, MAX_QDEPTH_KEY, DEFAULT_MAX_QDEPTH)
+        self.DO_SEARCH_MOVE_SORT = config_val(config, DO_SEARCH_MOVE_SORT_KEY, DEFAULT_DO_SEARCH_MOVE_SORT)
+        self.DO_QSEARCH_MOVE_SORT = config_val(config, DO_QSEARCH_MOVE_SORT_KEY, DEFAULT_DO_QSEARCH_MOVE_SORT)
+        self.USE_QTT = config_val(config, USE_QTT_KEY, DEFAULT_USE_QTT)
+            
         # timing
-        self.engine_time_allowed_s = engine_time_allowed_s
         self.total_engine_time_s = 0
         
         self.fen4s = set()
@@ -68,16 +96,16 @@ class Engine:
     def static_eval(self):
         return evaluate.static_eval(self.board)
 
-    def iterative_deepening(self, time_limit_s):
-        print("                                                               id time limit is %.3fs" % time_limit_s)
-        max_depth = MAX_DEPTH
-        if time_limit_s > 0:
+    def iterative_deepening(self, move_time_limit_s):
+        print("                                                               id time limit is %.3fs" % move_time_limit_s)
+        max_depth = self.MAX_DEPTH
+        if move_time_limit_s > 0:
             max_depth = 16
         id_start_time_s = time.time() 
         pv = []
         stats = None
         for depth_to_go in [n+1 for n in range(max_depth)]:
-            stats = SearchStats(depth_to_go, MAX_QDEPTH)
+            stats = SearchStats(depth_to_go, self.MAX_QDEPTH)
             depth_start_time_s = time.time()
             # engine_move, val, rpv = self.alphabeta(stats, pv, 0, depth_to_go)
             engine_move, val, rpv = self.principal_variation_search(stats, pv, 0, depth_to_go)
@@ -90,8 +118,8 @@ class Engine:
             print("                                        cut nodes nodes by depth: %s" % (" ".join(["%d/%d" % (stats.n_depth_cut_nodes[i], stats.n_depth_cut_siblings[i]) for i in range(len(stats.n_depth_cut_nodes))])))
             print("                                        qnodes %d qpats %d qtts %d qttubs %d qttlbs %d qttxs %d qcuts %d qnodes by depth %s" % (stats.n_qnodes, stats.n_qpat_nodes, stats.n_qtt_hits, stats.n_qtt_ub_hits, stats.n_qtt_lb_hits, stats.n_qtt_exact_hits, stats.n_qcut_nodes, " ".join([str(n) for n in stats.n_qdepth_nodes])))
             id_elapsed_time_s = depth_end_time_s - id_start_time_s
-            print("                                                               id time limit is %.3fs - elapsed time is %.3fs" % (time_limit_s, id_elapsed_time_s))
-            if time_limit_s > 0 and id_elapsed_time_s >= time_limit_s:
+            print("                                                               id time limit is %.3fs - elapsed time is %.3fs" % (move_time_limit_s, id_elapsed_time_s))
+            if move_time_limit_s > 0 and id_elapsed_time_s >= move_time_limit_s:
                 break
         print()
         return engine_move, val, rpv, stats
@@ -124,11 +152,11 @@ class Engine:
             if alpha < best_eval:
                 alpha = best_eval
         
-        if depth_from_qroot >= MAX_QDEPTH:
+        if depth_from_qroot >= self.MAX_QDEPTH:
             # print("                        %s %s val %d alpha %d beta %d check %s MAX DEPTH return %d" % ("  " * depth_from_qroot, self.board.fen(), val, orig_alpha, beta, str(is_check), val))
             return val
 
-        if USE_QTT:
+        if self.USE_QTT:
             if pos_fen4 == None:
                 pos_fen4 = fen4(self.board)
             
@@ -175,7 +203,7 @@ class Engine:
                 # relative to (static) val for QTT consistency - we really want 0 here but doesn't work with QTT and should be an edge case
                 best_eval = val + evaluate.DRAW_VAL
 
-            if USE_QTT:
+            if self.USE_QTT:
                 qtt_entry.lb_delta = best_eval - val
                 qtt_entry.ub_delta = best_eval - val
 
@@ -194,7 +222,7 @@ class Engine:
                 # print("                        %s %s val %d alpha %d beta %d check %s  no captures return %d" % ("  " * depth_from_qroot, self.board.fen(), val, orig_alpha, beta, str(is_check), val))
                 return val
         
-        if DO_QSEARCH_MOVE_SORT:
+        if self.DO_QSEARCH_MOVE_SORT:
             qmoves.sort(key=lambda move: search_move_sort_key(self.board, move), reverse=True)
 
         move_no = 0
@@ -216,12 +244,12 @@ class Engine:
             static_move_val += promo_piece_val
 
             move_eval = static_move_val
-            if depth_from_qroot+1 < MAX_QDEPTH:
+            if depth_from_qroot+1 < self.MAX_QDEPTH:
                 self.board.push(move)
                 move_eval = -self.quiesce_alphabeta(stats, depth_from_qroot+1, -static_move_val, -beta, -alpha)
                 self.board.pop()
             else:
-                stats.n_qdepth_nodes[MAX_QDEPTH] += 1
+                stats.n_qdepth_nodes[self.MAX_QDEPTH] += 1
 
             if best_eval < move_eval:
                 best_eval = move_eval
@@ -244,7 +272,7 @@ class Engine:
         #     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! bingo bongo bango !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         #     print("board fen %s qt-entry (%d, %d, %s) -> qtt_best_eval %d orig_alpha %d beta %d val %d alpha %d best_eval %d best_move %s move_no %d qmoves %s" % (pos_fen4, qtt_entry.lb, qtt_entry.ub, str(qtt_entry.move), qtt_best_eval, orig_alpha, beta, val, alpha, best_eval, str(best_move), move_no, str(qmoves)))
 
-        if USE_QTT:
+        if self.USE_QTT:
             best_eval_delta = best_eval - val
             if best_eval <= orig_alpha:
                 # All-node: we don't get a good idea of the best move
@@ -321,7 +349,7 @@ class Engine:
         if pv:
             pv_move = pv[0]
 
-        if DO_SEARCH_MOVE_SORT:
+        if self.DO_SEARCH_MOVE_SORT:
             moves.sort(key=lambda move: search_move_sort_key(self.board, move, pv_move, tt_move), reverse=True)
 
         move_no = 0
@@ -417,7 +445,7 @@ class Engine:
         if pv:
             pv_move = pv[0]
 
-        if DO_SEARCH_MOVE_SORT:
+        if self.DO_SEARCH_MOVE_SORT:
             moves.sort(key=lambda move: search_move_sort_key(self.board, move, pv_move, tt_move), reverse=True)
 
         move_no = 0
@@ -485,15 +513,15 @@ class Engine:
         self.tt.clear()
         self.qtt.clear()
         remaining_time_s = 0
-        if self.engine_time_allowed_s > 0:
-            remaining_time_s = self.engine_time_allowed_s - self.total_engine_time_s
+        if self.GAME_TIME_LIMIT_S > 0:
+            remaining_time_s = self.GAME_TIME_LIMIT_S - self.total_engine_time_s
+        move_time_limit_s = remaining_time_s/48
         gen_move_start_s = time.time()
-        time_limit_s = remaining_time_s/48
-        engine_move, val, rpv, stats = self.iterative_deepening(time_limit_s)
+        engine_move, val, rpv, stats = self.iterative_deepening(move_time_limit_s)
         gen_move_end_s = time.time()
         gen_move_elapsed_time_s = gen_move_end_s - gen_move_start_s
         self.total_engine_time_s += gen_move_elapsed_time_s
-        print("                                                   engine time so far %.3fs of %.3fs tt size is %d qtt size is %d" % (self.total_engine_time_s, self.engine_time_allowed_s, len(self.tt), len(self.qtt)))
+        print("                                                   engine time so far %.3fs of %.3fs tt size is %d qtt size is %d" % (self.total_engine_time_s, self.GAME_TIME_LIMIT_S, len(self.tt), len(self.qtt)))
         pv = rpv[::-1]
         return engine_move, val, pv, stats
         

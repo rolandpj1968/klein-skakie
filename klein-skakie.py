@@ -7,20 +7,23 @@ from util import fen4, move_list_to_sans
 
 import evaluate
 
-from engine import Engine
+from engine import Engine, SearchStats
 
 import cProfile
 
 class Game:
-    def __init__(self, board = chess.Board(), engine_time_allowed_s = 0):
+    def __init__(self, board = chess.Board(), config_b = {"time-limit-s": 120}, config_w = {"time-limit-s": 60}):
         self.board = board
         # TODO - docs reckon this only copies the base-board - what about previous moves?
-        print("!!!!!!!!!!!!!!! engine time allowed is %.3fs" % engine_time_allowed_s)
-        self.engines = [Engine(board.copy(), engine_time_allowed_s), Engine(board.copy(), engine_time_allowed_s)]
+        self.engines = [Engine(board.copy(), config_b), Engine(board.copy(), config_w)]
 
     def play(self):
         total_engine_time_s = 0
         print_board = True
+
+        w_engine = self.engines[chess.WHITE]
+        b_engine = self.engines[chess.BLACK]
+        
         while True:
             legal_move_sans = [self.board.san(m) for m in self.board.legal_moves]
             
@@ -57,11 +60,13 @@ class Game:
             
             print("%s to move" % ["Black", "White"][self.board.turn])
             print()
-            w_val = self.engines[chess.WHITE].static_eval()
-            b_val = self.engines[chess.BLACK].static_eval()
-            print("Static eval - positive is White advantage: white engine %d cp black engine %d cp" % (w_val, b_val))
-            # qval = self.engine.quiesce_alphabeta(SearchStats(MAX_DEPTH, MAX_QDEPTH), 0, val)
-            # print("Quiesced eval - positive is White advantage: %d" % qval)
+            w_val = w_engine.static_eval()
+            b_val = b_engine.static_eval()
+            print("Static eval   - positive is White advantage: white engine %d cp black engine %d cp" % (w_val, b_val))
+            sign = [-1, 1][w_engine.board.turn]
+            w_qval = w_engine.quiesce_alphabeta(SearchStats(1, w_engine.MAX_QDEPTH), 0, w_val * sign) * sign
+            b_qval = b_engine.quiesce_alphabeta(SearchStats(1, b_engine.MAX_QDEPTH), 0, b_val * sign) * sign
+            print("Quiesced eval - positive is White advantage: white engine %d cp black engine %d cp" % (w_qval, b_qval))
             print()
             print("Legal moves: %s" % " ".join(legal_move_sans))
             print()
@@ -94,8 +99,8 @@ class Game:
                 move = self.board.parse_san(move_san)
                 
             self.board.push(move)
-            self.engines[chess.WHITE].make_move(move)
-            self.engines[chess.BLACK].make_move(move)
+            w_engine.make_move(move)
+            b_engine.make_move(move)
 
 def main():
     print("Hallo RPJ - let's play chess")
@@ -106,6 +111,6 @@ def main():
     game.play()
 
 if __name__ == "__main__":
-    # main()
-    cProfile.run("main()")
+    main()
+    # cProfile.run("main()")
 
